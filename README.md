@@ -6,6 +6,13 @@
   <img src="https://visitor-badge.laobi.icu/badge?page_id=QmFkLVBp.QmFkLVBp&"  />
 </div>
 
+###
+###
+
+<div align="center">
+  <img width="500" height="500" alt="Без назви" src="https://github.com/user-attachments/assets/b7ebaf94-467b-4f3e-8b35-376f95352eca" />
+</div>
+
 ------------
 <div align="center">
   ОПИС
