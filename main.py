@@ -6,6 +6,8 @@ import base64
 import os
 import webbrowser
 
+APP_VERSION = "1.0.2"
+
 LANG_STRINGS = {
     "ua": {
         "title": "ДЕКРИПТОІНАТОР 1000",
@@ -57,10 +59,11 @@ LANG_STRINGS = {
         "settings_self_destruct_run": "ЗНИЩЕННЯ...",
         "settings_self_destruct_prank": "Жартую! 😜\nВсе на місці.",
         "about_title": "Вікно: Про автора",
-        "about_text": "Автор: Крилевич Мирослав\n" \
-                      "Група: УБД-32\n\n" \
-                      "Розроблено для навчальних цілей в криптографії.\n" \
-                      "<<  Поки я не почитав ККУ - життя здавалось більш яскравішим >>",
+        "about_text": f"Автор: Крилевич Мирослав\n" \
+                      f"Група: УБД-32\n\n" \
+                      f"Розроблено для навчальних цілей в криптографії.\n" \
+                      f"<<  Поки я не почитав ККУ - життя здавалось більш яскравішим >>\n\n"\
+                      f"Версія: {APP_VERSION}",
         "about_links_label": "Посилання:",
         "error_icon_load_title": "Помилка іконки",
         "error_icon_load_msg": "Не вдалося завантажити файл іконки 'logo.png'.\nПеревірте, чи файл існує, чи це PNG, і чи він не пошкоджений.\nВикористовується стандартна іконка.",
@@ -121,10 +124,11 @@ LANG_STRINGS = {
         "settings_self_destruct_run": "DESTRUCTING...",
         "settings_self_destruct_prank": "Just kidding! 😜\nEverything is fine.",
         "about_title": "Window: About",
-        "about_text": "Author: Krylevych Myroslav\n" \
-                      "Group: UBD-32\n\n" \
-                      "Developed for learning scope in cybersecurity.\n" \
-                      "<< Until I read the KKU - life seemed brighter >>",
+        "about_text": f"Author: Krylevych Myroslav\n" \
+                      f"Group: UBD-32\n\n" \
+                      f"Developed for learning scope in cybersecurity.\n" \
+                      f"<< Until I read the KKU - life seemed brighter >>\n\n" \
+                      f"Version: {APP_VERSION}", # Version added
         "about_links_label": "Links:",
         "error_icon_load_title": "Icon Error",
         "error_icon_load_msg": "Failed to load the icon file 'logo.png'.\nCheck if the file exists, is a valid PNG, and is not corrupted.\nUsing the default icon.",
@@ -172,7 +176,8 @@ class StegoApp(ctk.CTk):
 
     def _create_widget(self, widget_class, *args, **kwargs):
         widget = widget_class(*args, **kwargs)
-        self.all_widgets.append(widget)
+        if isinstance(widget, (ctk.CTkFrame, ctk.CTkButton, ctk.CTkLabel, ctk.CTkOptionMenu, ctk.CTkTextbox, ctk.CTkProgressBar, ctk.CTkEntry)):
+            self.all_widgets.append(widget)
         return widget
 
     def setup_window_icon(self):
@@ -439,7 +444,7 @@ class StegoApp(ctk.CTk):
 
     def _get_current_color_theme_name(self):
          try:
-             internal_theme_path = ctk.ThemeManager._currently_loaded_theme.lower()
+             internal_theme_path = getattr(ctk.ThemeManager, "_currently_loaded_theme", "").lower()
              if "dark-blue" in internal_theme_path: return "dark-blue"
              if "green" in internal_theme_path: return "green"
              return "blue"
@@ -506,7 +511,7 @@ class StegoApp(ctk.CTk):
         self.settings_lang_label.configure(text=lang["settings_lang"])
         self.settings_theme_label.configure(text=lang["settings_theme"])
         self.settings_danger_label.configure(text=lang["settings_danger_zone"])
-        if self.self_destruct_btn.cget('state') == tk.NORMAL:
+        if hasattr(self, 'self_destruct_btn') and self.self_destruct_btn.winfo_exists() and self.self_destruct_btn.cget('state') == tk.NORMAL:
              self.self_destruct_btn.configure(text=lang["settings_self_destruct"])
 
         self.about_title.configure(text=lang["about_title"])
