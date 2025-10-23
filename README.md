@@ -31,7 +31,7 @@
 
 Перед початком встановлення програми необхідно завантажини додаткові бібліотеки для роботи:
 
-``` pip install customtkinter pillow ```
+``` pip install customtkinter pillow requests ```
 
 Після завантаження необхідних бібіліотек завантажуємо саму програму:
 
@@ -42,8 +42,15 @@
 ``` python3 main.py ```
 
 ------------
-<img width="1247" height="990" alt="зображення" src="https://github.com/user-attachments/assets/62f3ef6b-57c1-48e7-814e-681da52502df" />
 
-<img width="1190" height="982" alt="зображення" src="https://github.com/user-attachments/assets/40b8fdfc-2394-4545-837b-10e2bba5ffd5" />
+<img width="1147" height="967" alt="зображення" src="https://github.com/user-attachments/assets/e95d636a-7204-4a90-9d14-b38fc04ceb3b" />
 
-<img width="1206" height="983" alt="зображення" src="https://github.com/user-attachments/assets/125b173b-383d-4cf8-90e0-b98fee48091c" />
+<img width="1128" height="971" alt="зображення" src="https://github.com/user-attachments/assets/d85ed27a-3050-4522-a337-56454e501bb2" />
+
+<img width="1121" height="959" alt="зображення" src="https://github.com/user-attachments/assets/252f2bc7-970b-4e64-8d7d-d5e95692f33e" />
+
+<img width="1125" height="961" alt="зображення" src="https://github.com/user-attachments/assets/dd4fbeb0-45c1-43c8-b5e6-c13031ff0c70" />
+
+<img width="1129" height="966" alt="зображення" src="https://github.com/user-attachments/assets/bcd99aa1-cc0a-47b4-a85b-b33fee08931e" />
+
+<img width="1119" height="958" alt="зображення" src="https://github.com/user-attachments/assets/70d864f0-1bd5-4937-9da1-0fe5d01c7dee" />
