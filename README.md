@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://tryhackme-badges.s3.amazonaws.com/0xW1ZARD.png" alt="Your Image Badge" />                           <img src="https://tryhackme-badges.s3.amazonaws.com/dhub3263.png" alt="Your Image Badge" />
+  <img src="https://tryhackme-badges.s3.amazonaws.com/0xW1ZARD.png" alt="Your Image Badge" />
 </div>
 
 <div align="center">
