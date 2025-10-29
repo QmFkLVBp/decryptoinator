@@ -15,7 +15,7 @@ import sys
 import subprocess
 import shutil
 
-APP_VERSION = "1.2.5"
+APP_VERSION = "1.3.2"
 
 APP_LOGO_URL = "https://raw.githubusercontent.com/QmFkLVBp/decryptoinator/refs/heads/main/logo.png"
 
@@ -1787,3 +1787,4 @@ class StegoApp(ctk.CTk):
 if __name__ == "__main__":
     app = StegoApp()
     app.mainloop()
+
