@@ -9,6 +9,11 @@ import string
 import io
 import requests
 import threading
+import math
+from collections import Counter
+import sys
+import subprocess
+import shutil
 
 APP_VERSION = "1.2.5"
 
@@ -124,6 +129,11 @@ LANG_STRINGS = {
         "vigenere_status_ok_decrypt": "Розшифровка Віженера завершена.",
         "vigenere_status_error_input": "Помилка: Введіть текст та ключ.",
         "vigenere_status_error_key": "Помилка: Ключ повинен містити лише літери.",
+        "vigenere_crack_btn": "Зламати (без ключа)",
+        "vigenere_crack_max_key_label": "Макс. довжина ключа:",
+        "vigenere_key_guess_default": "Відновлений ключ: ?",
+        "vigenere_status_cracking": "Злам Віженера...",
+        "vigenere_status_ok_crack": "Злам завершено.",
         "base64_title": "Вікно: Base64 Кодер/Декодер",
         "base64_mode_encode": "Кодувати (в Base64)",
         "base64_mode_decode": "Декодувати (з Base64)",
@@ -197,6 +207,7 @@ LANG_STRINGS = {
         "lsb_result_text": "Result (LSB Plane)",
         "lsb_decoded_text_label": "Decrypted Message:",
         "lsb_status_warn_format": "WARNING: This is likely a 'lossy' format. Method may fail.",
+        "'lsb_status_ok_load": "'Lossless' container loaded. Press 'Decrypt'.",
         "lsb_status_ok_load": "'Lossless' container loaded. Press 'Decrypt'.",
         "lsb_status_error_load": "Load a container first!",
         "lsb_status_processing": "Decrypting...",
@@ -227,6 +238,11 @@ LANG_STRINGS = {
         "vigenere_status_ok_decrypt": "Vigenère decryption complete.",
         "vigenere_status_error_input": "Error: Enter text and keyword.",
         "vigenere_status_error_key": "Error: Keyword must contain only letters.",
+        "vigenere_crack_btn": "CRACK (no key)",
+        "vigenere_crack_max_key_label": "Max key length:",
+        "vigenere_key_guess_default": "Guessed key: ?",
+        "vigenere_status_cracking": "Cracking Vigenère...",
+        "vigenere_status_ok_crack": "Cracking complete.",
         "base64_title": "Window: Base64 Encoder/Decoder",
         "base64_mode_encode": "Encode (to Base64)",
         "base64_mode_decode": "Decode (from Base64)",
@@ -394,22 +410,14 @@ class StegoApp(ctk.CTk):
             self.app_logo_label.configure(image=None, text="🔒")
 
     def setup_content_frames(self):
-        self.xor_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.xor_frame.is_themeable = False
-        self.lsb_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.lsb_frame.is_themeable = False
-        self.picker_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.picker_frame.is_themeable = False
-        self.vigenere_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.vigenere_frame.is_themeable = False
-        self.base64_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.base64_frame.is_themeable = False
-        self.ela_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.ela_frame.is_themeable = False
-        self.settings_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.settings_frame.is_themeable = False
-        self.about_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
-        self.about_frame.is_themeable = False
+        self.xor_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.xor_frame.is_themeable = False
+        self.lsb_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.lsb_frame.is_themeable = False
+        self.picker_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.picker_frame.is_themeable = False
+        self.vigenere_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.vigenere_frame.is_themeable = False
+        self.base64_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.base64_frame.is_themeable = False
+        self.ela_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.ela_frame.is_themeable = False
+        self.settings_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.settings_frame.is_themeable = False
+        self.about_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.about_frame.is_themeable = False
 
         self.setup_xor_frame_widgets()
         self.setup_lsb_frame_widgets()
@@ -426,15 +434,13 @@ class StegoApp(ctk.CTk):
         self.xor_title.grid(row=0, column=0, columnspan=2, pady=20, padx=20)
 
         self.xor_label1 = self._create_widget(ctk.CTkLabel, self.xor_frame, width=300, height=300, fg_color="gray20",
-                                              corner_radius=10, text="");
-        self.xor_label1.is_themeable = False
+                                              corner_radius=10, text=""); self.xor_label1.is_themeable = False
         self.xor_label1.grid(row=1, column=0, padx=20, pady=10, sticky="n")
         self.xor_load_btn1 = self._create_widget(ctk.CTkButton, self.xor_frame, command=self.load_xor_image1)
         self.xor_load_btn1.grid(row=2, column=0, padx=20, pady=10)
 
         self.xor_label2 = self._create_widget(ctk.CTkLabel, self.xor_frame, width=300, height=300, fg_color="gray20",
-                                              corner_radius=10, text="");
-        self.xor_label2.is_themeable = False
+                                              corner_radius=10, text=""); self.xor_label2.is_themeable = False
         self.xor_label2.grid(row=1, column=1, padx=20, pady=10, sticky="n")
         self.xor_load_btn2 = self._create_widget(ctk.CTkButton, self.xor_frame, command=self.load_xor_image2)
         self.xor_load_btn2.grid(row=2, column=1, padx=20, pady=10)
@@ -444,11 +450,9 @@ class StegoApp(ctk.CTk):
         self.xor_run_btn.grid(row=3, column=0, columnspan=2, pady=20)
 
         self.xor_result_label = self._create_widget(ctk.CTkLabel, self.xor_frame, width=300, height=300,
-                                                    fg_color="gray25", corner_radius=10, text="");
-        self.xor_result_label.is_themeable = False
+                                                    fg_color="gray25", corner_radius=10, text=""); self.xor_result_label.is_themeable = False
         self.xor_result_label.grid(row=4, column=0, columnspan=2, pady=10)
-        self.xor_status_label = self._create_widget(ctk.CTkLabel, self.xor_frame, text="", text_color="yellow");
-        self.xor_status_label.is_themeable = False
+        self.xor_status_label = self._create_widget(ctk.CTkLabel, self.xor_frame, text="", text_color="yellow"); self.xor_status_label.is_themeable = False
 
     def setup_lsb_frame_widgets(self):
         self.lsb_frame.grid_columnconfigure(0, weight=1)
@@ -467,19 +471,16 @@ class StegoApp(ctk.CTk):
                                                font=ctk.CTkFont(size=16, weight="bold"))
         self.lsb_run_btn.grid(row=0, column=1, padx=10, pady=10)
 
-        img_frame = self._create_widget(ctk.CTkFrame, self.lsb_frame, fg_color="transparent");
-        img_frame.is_themeable = False
+        img_frame = self._create_widget(ctk.CTkFrame, self.lsb_frame, fg_color="transparent"); img_frame.is_themeable = False
         img_frame.grid(row=2, column=0, pady=10, padx=20, sticky="ew")
         img_frame.grid_columnconfigure((0, 1), weight=1)
 
         self.lsb_original_label = self._create_widget(ctk.CTkLabel, img_frame, width=350, height=250, fg_color="gray20",
-                                                      corner_radius=10, text="");
-        self.lsb_original_label.is_themeable = False
+                                                      corner_radius=10, text=""); self.lsb_original_label.is_themeable = False
         self.lsb_original_label.grid(row=0, column=0, pady=10, padx=10)
 
         self.lsb_result_label = self._create_widget(ctk.CTkLabel, img_frame, width=350, height=250, fg_color="gray25",
-                                                    corner_radius=10, text="");
-        self.lsb_result_label.is_themeable = False
+                                                    corner_radius=10, text=""); self.lsb_result_label.is_themeable = False
         self.lsb_result_label.grid(row=0, column=1, pady=10, padx=10)
 
         self.lsb_decoded_text_label = self._create_widget(ctk.CTkLabel, self.lsb_frame, font=ctk.CTkFont(size=16))
@@ -488,8 +489,7 @@ class StegoApp(ctk.CTk):
         self.lsb_text_result = self._create_widget(ctk.CTkTextbox, self.lsb_frame, height=100, font=("Consolas", 14))
         self.lsb_text_result.grid(row=4, column=0, pady=10, padx=20, sticky="nsew")
 
-        self.lsb_status_label = self._create_widget(ctk.CTkLabel, self.lsb_frame, text="", text_color="yellow");
-        self.lsb_status_label.is_themeable = False
+        self.lsb_status_label = self._create_widget(ctk.CTkLabel, self.lsb_frame, text="", text_color="yellow"); self.lsb_status_label.is_themeable = False
 
     def setup_picker_frame_widgets(self):
         self.picker_frame.grid_columnconfigure(0, weight=1)
@@ -504,8 +504,7 @@ class StegoApp(ctk.CTk):
         self.picker_load_btn.grid(row=1, column=0, pady=10)
 
         self.picker_image_label = self._create_widget(ctk.CTkLabel, self.picker_frame, fg_color="gray20",
-                                                      corner_radius=10, text="");
-        self.picker_image_label.is_themeable = False
+                                                      corner_radius=10, text=""); self.picker_image_label.is_themeable = False
         self.picker_image_label.grid(row=2, column=0, pady=10, padx=20, sticky="nswe")
         self.picker_image_label.bind("<Button-1>", self.on_image_click)
 
@@ -524,13 +523,12 @@ class StegoApp(ctk.CTk):
         self.picker_clear_btn = self._create_widget(ctk.CTkButton, self.picker_frame, command=self.clear_picker_text)
         self.picker_clear_btn.grid(row=5, column=0, pady=5)
 
-        self.picker_status_label = self._create_widget(ctk.CTkLabel, self.picker_frame, text_color="gray");
-        self.picker_status_label.is_themeable = False
+        self.picker_status_label = self._create_widget(ctk.CTkLabel, self.picker_frame, text_color="gray"); self.picker_status_label.is_themeable = False
 
     def setup_vigenere_frame_widgets(self):
         self.vigenere_frame.grid_columnconfigure(0, weight=1)
         self.vigenere_frame.grid_rowconfigure(3, weight=1)
-        self.vigenere_frame.grid_rowconfigure(6, weight=1)
+        self.vigenere_frame.grid_rowconfigure(7, weight=1)
 
         self.vigenere_title = self._create_widget(ctk.CTkLabel, self.vigenere_frame,
                                                   font=ctk.CTkFont(size=24, weight="bold"))
@@ -562,14 +560,28 @@ class StegoApp(ctk.CTk):
                                                     command=self.perform_vigenere_operation)
         self.vigenere_run_btn.grid(row=0, column=2, padx=(20, 0))
 
+        # Crack controls (no key)
+        self.vigenere_crack_max_key_label = self._create_widget(ctk.CTkLabel, controls_frame)
+        self.vigenere_crack_max_key_label.grid(row=1, column=0, padx=(0, 5), pady=(8, 0), sticky="w")
+        self.vigenere_crack_max_key_entry = self._create_widget(ctk.CTkEntry, controls_frame, width=80)
+        self.vigenere_crack_max_key_entry.grid(row=1, column=1, padx=5, pady=(8, 0), sticky="w")
+        self.vigenere_crack_max_key_entry.insert(0, "20")
+        self.vigenere_crack_btn = self._create_widget(ctk.CTkButton, controls_frame,
+                                                      command=self.perform_vigenere_crack)
+        self.vigenere_crack_btn.grid(row=1, column=2, padx=(20, 0), pady=(8, 0))
+
+        # Guessed key label
+        self.vigenere_key_guess_label = self._create_widget(ctk.CTkLabel, self.vigenere_frame,
+                                                            font=ctk.CTkFont(size=14))
+        self.vigenere_key_guess_label.grid(row=5, column=0, pady=(0, 0), padx=20, sticky="w")
+
         self.vigenere_output_label = self._create_widget(ctk.CTkLabel, self.vigenere_frame, font=ctk.CTkFont(size=16))
-        self.vigenere_output_label.grid(row=5, column=0, pady=(10, 0), padx=20, sticky="w")
+        self.vigenere_output_label.grid(row=6, column=0, pady=(10, 0), padx=20, sticky="w")
         self.vigenere_output_textbox = self._create_widget(ctk.CTkTextbox, self.vigenere_frame, height=150)
-        self.vigenere_output_textbox.grid(row=6, column=0, pady=5, padx=20, sticky="nsew")
+        self.vigenere_output_textbox.grid(row=7, column=0, pady=5, padx=20, sticky="nsew")
 
         self.vigenere_status_label = self._create_widget(ctk.CTkLabel, self.vigenere_frame, text="",
-                                                         text_color="yellow");
-        self.vigenere_status_label.is_themeable = False
+                                                         text_color="yellow"); self.vigenere_status_label.is_themeable = False
 
     def setup_base64_frame_widgets(self):
         self.base64_frame.grid_columnconfigure(0, weight=1)
@@ -604,8 +616,7 @@ class StegoApp(ctk.CTk):
         self.base64_output_textbox = self._create_widget(ctk.CTkTextbox, self.base64_frame, height=150)
         self.base64_output_textbox.grid(row=6, column=0, pady=5, padx=20, sticky="nsew")
 
-        self.base64_status_label = self._create_widget(ctk.CTkLabel, self.base64_frame, text="", text_color="yellow");
-        self.base64_status_label.is_themeable = False
+        self.base64_status_label = self._create_widget(ctk.CTkLabel, self.base64_frame, text="", text_color="yellow"); self.base64_status_label.is_themeable = False
 
     def setup_ela_frame_widgets(self):
         self.ela_frame.grid_columnconfigure(0, weight=1)
@@ -636,23 +647,19 @@ class StegoApp(ctk.CTk):
                                                font=ctk.CTkFont(size=16, weight="bold"))
         self.ela_run_btn.grid(row=1, column=2, rowspan=2, padx=20, pady=10)
 
-        img_frame = self._create_widget(ctk.CTkFrame, self.ela_frame, fg_color="transparent");
-        img_frame.is_themeable = False
+        img_frame = self._create_widget(ctk.CTkFrame, self.ela_frame, fg_color="transparent"); img_frame.is_themeable = False
         img_frame.grid(row=2, column=0, pady=10, padx=20, sticky="ew")
         img_frame.grid_columnconfigure((0, 1), weight=1)
 
         self.ela_original_label = self._create_widget(ctk.CTkLabel, img_frame, width=350, height=300, fg_color="gray20",
-                                                      corner_radius=10, text="");
-        self.ela_original_label.is_themeable = False
+                                                      corner_radius=10, text=""); self.ela_original_label.is_themeable = False
         self.ela_original_label.grid(row=0, column=0, pady=10, padx=10)
 
         self.ela_result_label = self._create_widget(ctk.CTkLabel, img_frame, width=350, height=300, fg_color="gray25",
-                                                    corner_radius=10, text="");
-        self.ela_result_label.is_themeable = False
+                                                    corner_radius=10, text=""); self.ela_result_label.is_themeable = False
         self.ela_result_label.grid(row=0, column=1, pady=10, padx=10)
 
-        self.ela_status_label = self._create_widget(ctk.CTkLabel, self.ela_frame, text="", text_color="yellow");
-        self.ela_status_label.is_themeable = False
+        self.ela_status_label = self._create_widget(ctk.CTkLabel, self.ela_frame, text="", text_color="yellow"); self.ela_status_label.is_themeable = False
 
     def setup_settings_frame_widgets(self):
         self.settings_frame.grid_columnconfigure(0, weight=1)
@@ -686,13 +693,11 @@ class StegoApp(ctk.CTk):
 
         self.self_destruct_btn = self._create_widget(ctk.CTkButton, self.settings_frame,
                                                      fg_color="red", hover_color="darkred",
-                                                     command=self.self_destruct);
-        self.self_destruct_btn.is_themeable = False
+                                                     command=self.self_destruct); self.self_destruct_btn.is_themeable = False
         self.self_destruct_btn.grid(row=10, column=0, pady=10, padx=50, sticky="ew")
 
         self.self_destruct_progress = self._create_widget(ctk.CTkProgressBar, self.settings_frame, fg_color="gray20",
-                                                          progress_color="red");
-        self.self_destruct_progress.is_themeable = False
+                                                          progress_color="red"); self.self_destruct_progress.is_themeable = False
         self.self_destruct_progress.set(0)
         self.self_destruct_progress.grid(row=11, column=0, padx=50, pady=(0, 20), sticky="ew")
 
@@ -705,8 +710,7 @@ class StegoApp(ctk.CTk):
         self.about_title = self._create_widget(ctk.CTkLabel, self.about_frame, font=ctk.CTkFont(size=24, weight="bold"))
         self.about_title.grid(row=0, column=0, pady=20, padx=20)
 
-        center_frame = self._create_widget(ctk.CTkFrame, self.about_frame, fg_color="transparent");
-        center_frame.is_themeable = False
+        center_frame = self._create_widget(ctk.CTkFrame, self.about_frame, fg_color="transparent"); center_frame.is_themeable = False
         center_frame.grid(row=1, column=0, sticky="nsew", pady=20)
         center_frame.grid_columnconfigure(0, weight=1)
 
@@ -718,28 +722,35 @@ class StegoApp(ctk.CTk):
                                                      font=ctk.CTkFont(size=16, weight="bold"))
         self.about_links_label.grid(row=1, column=0, padx=20, pady=(20, 5))
 
-        links_frame = self._create_widget(ctk.CTkFrame, center_frame, fg_color="transparent");
-        links_frame.is_themeable = False
+        links_frame = self._create_widget(ctk.CTkFrame, center_frame, fg_color="transparent"); links_frame.is_themeable = False
         links_frame.grid(row=2, column=0, padx=20)
-        links_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        links_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
         linkedin_url = "https://www.linkedin.com/in/cybersecsprofile/"
         github_url = "https://github.com/QmFkLVBp"
         htb_url = "https://app.hackthebox.com/profile/1969974"
         thm_url = "https://tryhackme.com/p/0xW1ZARD"
+        website_url = "http://bad-pi.me"
 
         self.linkedin_btn = self._create_widget(ctk.CTkButton, links_frame, text="LinkedIn",
                                                 command=lambda: self.open_link(linkedin_url))
         self.linkedin_btn.grid(row=0, column=0, padx=5, pady=5)
+
         self.github_btn = self._create_widget(ctk.CTkButton, links_frame, text="GitHub",
                                               command=lambda: self.open_link(github_url))
         self.github_btn.grid(row=0, column=1, padx=5, pady=5)
+
         self.htb_btn = self._create_widget(ctk.CTkButton, links_frame, text="HackTheBox",
                                            command=lambda: self.open_link(htb_url))
         self.htb_btn.grid(row=0, column=2, padx=5, pady=5)
+
         self.thm_btn = self._create_widget(ctk.CTkButton, links_frame, text="TryHackMe",
                                            command=lambda: self.open_link(thm_url))
         self.thm_btn.grid(row=0, column=3, padx=5, pady=5)
+
+        self.website_btn = self._create_widget(ctk.CTkButton, links_frame, text="Website",
+                                               command=lambda: self.open_link(website_url))
+        self.website_btn.grid(row=0, column=4, padx=5, pady=5)
 
     def open_link(self, url):
         webbrowser.open_new(url)
@@ -956,7 +967,7 @@ class StegoApp(ctk.CTk):
 
         if hasattr(self, 'app_logo_label'):
             if self.logo_image is None:
-                self.app_logo_label.configure(text=lang.get("app_logo_text", "🔒")) 
+                self.app_logo_label.configure(text=lang.get("app_logo_text", "🔒"))
 
         if hasattr(self, 'xor_button'): self.xor_button.configure(text=lang["nav_xor"])
         if hasattr(self, 'lsb_button'): self.lsb_button.configure(text=lang["nav_lsb"])
@@ -1005,6 +1016,9 @@ class StegoApp(ctk.CTk):
         if hasattr(self, 'vigenere_title'): self.vigenere_title.configure(text=lang["vigenere_title"])
         if hasattr(self, 'vigenere_key_label'): self.vigenere_key_label.configure(text=lang["vigenere_key_label"])
         if hasattr(self, 'vigenere_mode_selector'): self.update_vigenere_labels()
+        if hasattr(self, 'vigenere_crack_max_key_label'): self.vigenere_crack_max_key_label.configure(text=lang["vigenere_crack_max_key_label"])
+        if hasattr(self, 'vigenere_crack_btn'): self.vigenere_crack_btn.configure(text=lang["vigenere_crack_btn"])
+        if hasattr(self, 'vigenere_key_guess_label'): self.vigenere_key_guess_label.configure(text=lang["vigenere_key_guess_default"])
 
         if hasattr(self, 'base64_title'): self.base64_title.configure(text=lang["base64_title"])
         if hasattr(self, 'base64_mode_selector'): self.update_base64_labels()
@@ -1256,6 +1270,33 @@ class StegoApp(ctk.CTk):
         except Exception as e:
             self.vigenere_status_label.configure(text=f"Error: {e}", text_color="red")
 
+    def perform_vigenere_crack(self):
+        lang = LANG_STRINGS[self.current_lang.get()]
+        ciphertext = self.vigenere_input_textbox.get("1.0", tk.END).strip()
+        if not ciphertext:
+            self.vigenere_status_label.configure(text=lang["vigenere_status_error_input"], text_color="red")
+            return
+        try:
+            try:
+                max_k = int(self.vigenere_crack_max_key_entry.get())
+                if max_k < 1 or max_k > 60:
+                    max_k = 20
+            except Exception:
+                max_k = 20
+
+            self.vigenere_status_label.configure(text=lang["vigenere_status_cracking"], text_color="yellow")
+            self.update_idletasks()
+
+            key, klen, plaintext = self.break_vigenere_no_key(ciphertext, max_key_len=max_k)
+
+            self.vigenere_output_textbox.delete("1.0", tk.END)
+            self.vigenere_output_textbox.insert("1.0", plaintext)
+            guess_msg = f"{lang['vigenere_key_guess_default'].split(':')[0]}: {key}  (len={klen})"
+            self.vigenere_key_guess_label.configure(text=guess_msg)
+            self.vigenere_status_label.configure(text=lang["vigenere_status_ok_crack"], text_color="green")
+        except Exception as e:
+            self.vigenere_status_label.configure(text=f"Error: {e}", text_color="red")
+
     def perform_base64_operation(self):
         lang = LANG_STRINGS[self.current_lang.get()]
         mode = self.base64_mode.get()
@@ -1332,6 +1373,70 @@ class StegoApp(ctk.CTk):
             self.ela_status_label.configure(text=f"Error: {e}", text_color="red")
             print(f"ELA Error: {e}")
 
+    # --- NEW: open URL in fullscreen/kiosk mode across platforms ---
+    def open_fullscreen_url(self, url: str):
+        try:
+            if sys.platform.startswith("win"):
+                candidates = [
+                    (r"C:\Program Files\Google\Chrome\Application\chrome.exe", ["--kiosk", "--new-window"]),
+                    (r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", ["--kiosk", "--new-window"]),
+                    (shutil.which("chrome") or shutil.which("chrome.exe"), ["--kiosk", "--new-window"]),
+                    (shutil.which("msedge") or shutil.which("msedge.exe"), ["--kiosk", "--edge-kiosk-type=fullscreen"]),
+                    (shutil.which("firefox") or shutil.which("firefox.exe"), ["--kiosk"]),
+                ]
+                for exe, args in candidates:
+                    if exe:
+                        try:
+                            subprocess.Popen([exe, *args, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            return
+                        except Exception:
+                            continue
+                # Fallback
+                webbrowser.open_new(url)
+            elif sys.platform == "darwin":
+                # macOS
+                def open_with(app_name, args):
+                    try:
+                        subprocess.Popen(["open", "-a", app_name, "--args", *args, url],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        return True
+                    except Exception:
+                        return False
+                # Try Chrome, Edge, Firefox
+                if open_with("Google Chrome", ["--kiosk"]): return
+                if open_with("Microsoft Edge", ["--kiosk", "--edge-kiosk-type=fullscreen"]): return
+                if open_with("Firefox", ["--kiosk"]): return
+                webbrowser.open_new(url)
+            else:
+                # Linux and others
+                candidates = [
+                    (shutil.which("google-chrome") or shutil.which("chrome"), ["--kiosk", "--new-window"]),
+                    (shutil.which("chromium-browser") or shutil.which("chromium"), ["--kiosk", "--new-window"]),
+                    (shutil.which("firefox"), ["--kiosk"]),
+                ]
+                for exe, args in candidates:
+                    if exe:
+                        try:
+                            subprocess.Popen([exe, *args, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            return
+                        except Exception:
+                            continue
+                webbrowser.open_new(url)
+        except Exception as e:
+            print(f"Failed to open fullscreen URL: {e}")
+            try:
+                webbrowser.open_new(url)
+            except Exception:
+                pass
+
+    def open_no_signal_fullscreen(self):
+        # Optionally minimize the app before opening the fullscreen site
+        try:
+            self.iconify()
+        except Exception:
+            pass
+        self.open_fullscreen_url("https://procatinator.com/?cat=117")
+
     def self_destruct(self):
         lang = LANG_STRINGS[self.current_lang.get()]
         self.self_destruct_btn.configure(state="disabled", text=lang["settings_self_destruct_run"])
@@ -1339,17 +1444,11 @@ class StegoApp(ctk.CTk):
 
         def update_progress(val):
             if val > 1.0:
+                # Reset UI state
                 self.self_destruct_progress.set(0)
                 self.self_destruct_btn.configure(state="normal", text=lang["settings_self_destruct"])
-                msg_box = ctk.CTkToplevel(self)
-                msg_box.attributes("-topmost", True)
-                msg_box.title(" ")
-                msg_box.geometry("300x150")
-                msg_box.grab_set()
-                ctk.CTkLabel(msg_box, text=lang["settings_self_destruct_prank"],
-                             font=("Arial", 18)).pack(expand=True, padx=20, pady=20)
-                self.center_window(msg_box, 300, 150)
-                msg_box.after(2000, msg_box.destroy)
+                # Open the no-signal screen in fullscreen
+                self.after(150, self.open_no_signal_fullscreen)
                 return
             self.self_destruct_progress.set(val)
             self.after(15, update_progress, val + 0.01)
@@ -1479,6 +1578,10 @@ class StegoApp(ctk.CTk):
             if char.isalpha():
                 char_upper = char.upper()
                 text_pos = alphabet.find(char_upper)
+                if text_pos == -1:
+                    # Non-ASCII letter (e.g., Cyrillic) -> keep as-is
+                    result += char
+                    continue
                 key_char = key[key_index % len(key)]
                 key_pos = alphabet.find(key_char)
 
@@ -1499,6 +1602,127 @@ class StegoApp(ctk.CTk):
 
     def vigenere_decrypt(self, ciphertext, key):
         return self.vigenere_process(ciphertext, key, mode='decrypt')
+
+    # ---------------- Vigenère Cryptoanalysis (no key) ----------------
+
+    def _only_letters_upper(self, s):
+        return "".join([c for c in s.upper() if c in string.ascii_uppercase])
+
+    def _index_of_coincidence(self, s):
+        s = self._only_letters_upper(s)
+        N = len(s)
+        if N <= 1:
+            return 0.0
+        counts = Counter(s)
+        num = sum(f * (f - 1) for f in counts.values())
+        den = N * (N - 1)
+        return num / den if den else 0.0
+
+    def _friedman_estimate_keylen(self, s):
+        s = self._only_letters_upper(s)
+        N = len(s)
+        if N < 2:
+            return 1
+        IC = self._index_of_coincidence(s)
+        IC_random = 1.0 / 26.0
+        IC_english = 0.065
+        try:
+            k = ((IC_english - IC_random) * N) / (((N - 1) * IC) - IC_random * N + IC_english)
+            k = int(round(max(1.0, k)))
+        except ZeroDivisionError:
+            k = 1
+        return max(1, min(k, 60))
+
+    def _kasiski_candidates(self, s, min_len=3, max_len=5, max_key_len=30):
+        s = self._only_letters_upper(s)
+        distances = []
+        for size in range(min_len, max_len + 1):
+            seen = {}
+            for i in range(0, len(s) - size + 1):
+                chunk = s[i:i + size]
+                if chunk in seen:
+                    prev = seen[chunk]
+                    distances.append(i - prev)
+                seen[chunk] = i
+        if not distances:
+            return []
+
+        factor_counts = Counter()
+        for d in distances:
+            for f in range(2, max_key_len + 1):
+                if d % f == 0:
+                    factor_counts[f] += 1
+        return [k for k, _ in factor_counts.most_common()]
+
+    def _english_frequencies(self):
+        return [
+            0.08167, 0.01492, 0.02782, 0.04253, 0.12702, 0.02228, 0.02015, 0.06094, 0.06966, 0.00153,
+            0.00772, 0.04025, 0.02406, 0.06749, 0.07507, 0.01929, 0.00095, 0.05987, 0.06327, 0.09056,
+            0.02758, 0.00978, 0.02360, 0.00150, 0.01974, 0.00074
+        ]
+
+    def _chi_squared_for_shift(self, column_text, shift):
+        alphabet = string.ascii_uppercase
+        N = len(column_text)
+        if N == 0:
+            return float('inf')
+        decrypted = [((ord(c) - 65 - shift) % 26) for c in column_text]
+        counts = [0] * 26
+        for idx in decrypted:
+            counts[idx] += 1
+        exp_freq = self._english_frequencies()
+        chi2 = 0.0
+        for i in range(26):
+            expected = exp_freq[i] * N
+            if expected > 0:
+                chi2 += ((counts[i] - expected) ** 2) / expected
+        return chi2
+
+    def _best_key_for_length(self, s, k):
+        s_only = self._only_letters_upper(s)
+        columns = ['' for _ in range(k)]
+        for i, c in enumerate(s_only):
+            columns[i % k] += c
+        key_chars = []
+        score_sum = 0.0
+        for col in columns:
+            best_shift = 0
+            best_score = float('inf')
+            for shift in range(26):
+                chi2 = self._chi_squared_for_shift(col, shift)
+                if chi2 < best_score:
+                    best_score = chi2
+                    best_shift = shift
+            score_sum += best_score
+            key_chars.append(chr(ord('A') + best_shift))
+        return "".join(key_chars), score_sum
+
+    def break_vigenere_no_key(self, ciphertext, max_key_len=20):
+        fried_k = self._friedman_estimate_keylen(ciphertext)
+        kasiski = self._kasiski_candidates(ciphertext, max_key_len=min(max_key_len, 30))
+
+        candidates = []
+        if fried_k >= 1:
+            candidates.extend([fried_k - 1, fried_k, fried_k + 1, fried_k + 2])
+        candidates.extend(kasiski[:8])
+        candidates.extend(range(1, min(6, max_key_len + 1)))
+        candidates = [k for k in dict.fromkeys(candidates) if 1 <= k <= max_key_len]
+
+        best_key = "A"
+        best_len = 1
+        best_score = float('inf')
+
+        for k in candidates:
+            key_guess, score = self._best_key_for_length(ciphertext, k)
+            if score < best_score:
+                best_score = score
+                best_key = key_guess
+                best_len = k
+
+        plaintext = self.vigenere_decrypt(ciphertext, best_key)
+        return best_key, best_len, plaintext
+
+    # ---------------- End Vigenère Cryptoanalysis ----------------
 
     def perform_ela(self, image_path, quality, scale):
         try:
