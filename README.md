@@ -3,7 +3,7 @@
 </div>
 
 <div align="center">
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=QmFkLVBp.QmFkLVBp&"  />
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=QmFkLVBp.QmFkLVBp&"  />                           <img src="https://img.shields.io/badge/version-1.3.2-blue"  />
 </div>
 
 ###
