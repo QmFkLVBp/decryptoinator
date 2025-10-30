@@ -1,19 +1,27 @@
 <div align="center">
-  <img src="https://tryhackme-badges.s3.amazonaws.com/0xW1ZARD.png" alt="Your Image Badge" />                            <img src="https://tryhackme-badges.s3.amazonaws.com/dhub3263.png" alt="Your Image Badge" />
-</div>
-
-<div align="center">
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=QmFkLVBp.QmFkLVBp&"  />                           <img src="https://img.shields.io/badge/version-1.3.2-blue"  />
-</div>
-
-###
-###
-
-<div align="center">
   <img width="500" height="500" alt="Без назви" src="https://github.com/user-attachments/assets/b7ebaf94-467b-4f3e-8b35-376f95352eca" />
+</div>
+<div align="center">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=QmFkLVBp.QmFkLVBp&"  /><img src="https://img.shields.io/badge/version-1.3.2-blue"  /><img src="https://img.shields.io/github/license/QmFkLVBp/decryptoinator"  /><img src="https://img.shields.io/github/contributors/QmFkLVBp/decryptoinator"/>
+</div>
+
+###
+###
+
+------------
+
+<div align="center">
+  РОЗРОБНИКИ
+</div>
+
+###
+
+<div align="center">
+  <img src="https://contrib.rocks/image?repo=QmFkLVBp/decryptoinator" />
 </div>
 
 ------------
+
 <div align="center">
   ОПИС
 </div>  
@@ -31,15 +39,15 @@
 
 Перед початком встановлення програми необхідно завантажини додаткові бібліотеки для роботи:
 
-``` pip install customtkinter pillow requests ```
+` pip install customtkinter pillow requests `
 
 Після завантаження необхідних бібіліотек завантажуємо саму програму:
 
-``` git clone https://github.com/QmFkLVBp/decryptoinator ```
+` git clone https://github.com/QmFkLVBp/decryptoinator `
 
 І тепер можемо запускати:
 
-``` python3 main.py ```
+` python3 main.py `
 
 ------------
 
