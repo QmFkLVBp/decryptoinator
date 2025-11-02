@@ -1,25 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-DECRYPTOINATOR 1000 - main.py
-Merged, full application with:
- - original image/stego utilities (XOR, LSB, Picker, ELA)
- - Vigenère cipher and cracking helpers
- - Base64 encode/ decode UI
- - AES encrypt/decrypt (PyCryptodome if available)
- - S-DES encrypt/decrypt (pure Python educational implementation)
- - Brute-force helpers for S-DES (full 1024 keys) and AES numeric PIN brute-force (limited length)
- - UI integration for AES and S-DES: frames, run and brute buttons, threads for bruteforce
-
-Upgrades in this release:
- - Fixed Self-Destruct prank (now implemented with animated progress)
- - Status labels placed and visible across frames (Vigenère, Base64, Picker, ELA)
- - Language switching updates AES/S-DES controls and segmented buttons too
- - Vigenère cracking runs asynchronously (keeps UI responsive)
- - Fixed logo URL to valid raw path
- - More robust default texts on image labels when no image is loaded
-
-Version: 1.4.1
-"""
 from __future__ import annotations
 
 import base64
@@ -2434,3 +2412,4 @@ class StegoApp(ctk.CTk):
 if __name__ == "__main__":
     app = StegoApp()
     app.mainloop()
+
