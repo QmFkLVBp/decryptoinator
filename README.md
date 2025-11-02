@@ -39,7 +39,7 @@ DECRYPTOINATOR 1000 - is a software developed in Python, intended to be used for
 
 Before installing the program, you need to download additional libraries for operation:
 
-` pip install customtkinter pillow requests `
+` pip install customtkinter pillow requests pycryptodome `
 
 After downloading the necessary libraries, we download the program itself:
 
@@ -51,14 +51,10 @@ And now we can run:
 
 ------------
 
-<img width="1147" height="967" alt="зображення" src="https://github.com/user-attachments/assets/e95d636a-7204-4a90-9d14-b38fc04ceb3b" />
+<img width="1919" height="999" alt="зображення" src="https://github.com/user-attachments/assets/9490ce93-fe37-422b-87d7-26779b2611bf" />
 
-<img width="1128" height="971" alt="зображення" src="https://github.com/user-attachments/assets/d85ed27a-3050-4522-a337-56454e501bb2" />
+<img width="1919" height="994" alt="зображення" src="https://github.com/user-attachments/assets/e3adf2e1-40ed-4d4c-a938-c5f56f19537b" />
 
-<img width="1121" height="959" alt="зображення" src="https://github.com/user-attachments/assets/252f2bc7-970b-4e64-8d7d-d5e95692f33e" />
+<img width="1088" height="752" alt="зображення" src="https://github.com/user-attachments/assets/98d2418e-0eef-4c1c-92b1-4fb662b045ad" />
 
-<img width="1125" height="961" alt="зображення" src="https://github.com/user-attachments/assets/dd4fbeb0-45c1-43c8-b5e6-c13031ff0c70" />
-
-<img width="1129" height="966" alt="зображення" src="https://github.com/user-attachments/assets/bcd99aa1-cc0a-47b4-a85b-b33fee08931e" />
-
-<img width="1119" height="958" alt="зображення" src="https://github.com/user-attachments/assets/70d864f0-1bd5-4937-9da1-0fe5d01c7dee" />
+<img width="1095" height="758" alt="зображення" src="https://github.com/user-attachments/assets/c575eb37-36da-4b5a-a8e7-4b002e276974" />
