@@ -11,7 +11,7 @@
 ------------
 
 <div align="center">
-  РОЗРОБНИКИ
+  DEVS
 </div>
 
 ###
@@ -23,29 +23,29 @@
 ------------
 
 <div align="center">
-  ОПИС
+  DESCRIPTION
 </div>  
 
 ###
 
-ДЕКРИПТОІНАТОР 1000 - це програмне забезпечення розроблене на Python, ціль якого використовуватись для вирішення задач з стеганографії та криптології. Наявний функціонал обмежений проте планується оновлюватись.
+DECRYPTOINATOR 1000 - is a software developed in Python, intended to be used for solving steganography and cryptology problems. The available functionality is limited, but it is planned to be updated.
 
 ------------
 <div align="center">
-  ВСТАНОВЛЕННЯ
+  INSTALLATION
 </div>  
 
 ###
 
-Перед початком встановлення програми необхідно завантажини додаткові бібліотеки для роботи:
+Before installing the program, you need to download additional libraries for operation:
 
 ` pip install customtkinter pillow requests `
 
-Після завантаження необхідних бібіліотек завантажуємо саму програму:
+After downloading the necessary libraries, we download the program itself:
 
 ` git clone https://github.com/QmFkLVBp/decryptoinator `
 
-І тепер можемо запускати:
+And now we can run:
 
 ` python3 main.py `
 
