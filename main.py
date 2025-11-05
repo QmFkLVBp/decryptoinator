@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import base64
 import hashlib
 import io
@@ -9,11 +8,9 @@ import threading
 import time
 import webbrowser
 from collections import Counter
-from typing import Tuple
-
+from typing import Tuple, List, Optional
 import requests
 from PIL import Image, ImageChops, ImageDraw, ImageTk
-
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -31,9 +28,28 @@ APP_VERSION = "1.4.1"
 # Fixed raw URL path (removed invalid refs/heads)
 APP_LOGO_URL = "https://raw.githubusercontent.com/QmFkLVBp/decryptoinator/main/logo.png"
 
-# -------------------------
-# UI Themes and Localization
-# -------------------------
+# --- S-DES Constants ---
+P10 = (3, 5, 2, 7, 4, 10, 1, 9, 8, 6)
+P8 = (6, 3, 7, 4, 8, 5, 10, 9)
+IP = (2, 6, 3, 1, 4, 8, 5, 7)
+IP_INV = (4, 1, 3, 5, 7, 2, 8, 6)
+EP = (4, 1, 2, 3, 2, 3, 4, 1)
+P4 = (2, 4, 3, 1)
+
+S0 = [
+    [1, 0, 3, 2],
+    [3, 2, 1, 0],
+    [0, 2, 1, 3],
+    [3, 1, 3, 2]
+]
+S1 = [
+    [0, 1, 2, 3],
+    [2, 0, 1, 3],
+    [3, 0, 1, 0],
+    [2, 1, 0, 3]
+]
+# --- End S-DES Constants ---
+
 THEMES = {
     "Нічна Прохолода": {
         "type": "dark",
@@ -159,7 +175,7 @@ LANG_STRINGS = {
         "vigenere_output_label_encrypt": "Зашифрований текст:",
         "vigenere_output_label_decrypt": "Розшифрований текст:",
         "vigenere_status_ok_encrypt": "Шифрування Віженера завершено.",
-        "vigenere_status_ok_decrypt": "Розшифровка Віженера завершена.",
+        "vigenere_status_ok_decrypt": "Шифрування Віженера завершено.",
         "vigenere_status_error_input": "Помилка: Введіть текст та ключ.",
         "vigenere_status_error_key": "Помилка: Ключ повинен містити лише літери.",
         "vigenere_crack_btn": "Зламати (без ключа)",
@@ -207,6 +223,23 @@ LANG_STRINGS = {
         "theme_sunrise": "Світанок",
         "theme_coffee": "Кава з Молоком",
         "theme_spring_meadow": "Весняний Луг",
+        "tab_sdes": "S-DES",
+        "sdes_title": "Шифр S-DES (Навчальний)",
+        "sdes_input_label": "Вхід (Текст для шифр., Base64 для дешифр.):",
+        "sdes_key_label": "Ключ (10-біт двійковий, н-д, 1010000010):",
+        "sdes_output_label": "Вихід:",
+        "sdes_log_label": "Журнал виконання:",
+        "sdes_run": "Виконати S-DES",
+        "sdes_status_ok": "S-DES {} завершено.",
+        "sdes_status_error_key": "Помилка: Ключ S-DES має бути рівно 10 біт (0 та 1)",
+        "sdes_status_error_b64": "Помилка: Вхідні дані для дешифрування - невалідний Base64.",
+        "sdes_brute_title": "Злам S-DES (Brute-force)",
+        "sdes_brute_ciphertext_label": "Шифротекст (Base64, з поля 'Вхід'):",
+        "sdes_brute_known_label": "Відомий фрагмент тексту (опційно):",
+        "sdes_brute_run": "Почати S-DES Brute-force (1024 ключі)",
+        "dialog_brute_sdes_msg": "Знайдено {0} можливих збігів (макс. 100):\n\n{1}",
+        "dialog_brute_sdes_match": "Ключ: {0}\nТекст: {1}...\n",
+        "dialog_brute_sdes_no_match": "Не знайдено ключа, що відповідає критеріям.",
     },
     "en": {
         "title": "DECRYPTOINATOR 1000",
@@ -329,6 +362,23 @@ LANG_STRINGS = {
         "theme_sunrise": "Sunrise",
         "theme_coffee": "Coffee Milk",
         "theme_spring_meadow": "Spring Meadow",
+        "tab_sdes": "S-DES",
+        "sdes_title": "S-DES Cipher (Educational)",
+        "sdes_input_label": "Input (Text for Encrypt, Base64 for Decrypt):",
+        "sdes_key_label": "Key (10-bit binary, e.g., 1010000010):",
+        "sdes_output_label": "Output:",
+        "sdes_log_label": "Execution Log:",
+        "sdes_run": "Run S-DES",
+        "sdes_status_ok": "S-DES {} complete.",
+        "sdes_status_error_key": "Error: S-DES Key must be exactly 10 bits (0s and 1s)",
+        "sdes_status_error_b64": "Error: Input data for decryption is not valid Base64.",
+        "sdes_brute_title": "S-DES Key Cracker (Brute-force)",
+        "sdes_brute_ciphertext_label": "Ciphertext (Base64, from 'Input' field):",
+        "sdes_brute_known_label": "Known Plaintext Fragment (optional):",
+        "sdes_brute_run": "Start S-DES Brute-force (1024 keys)",
+        "dialog_brute_sdes_msg": "Found {0} possible matches (max 100 shown):\n\n{1}",
+        "dialog_brute_sdes_match": "Key: {0}\nPlaintext: {1}...\n",
+        "dialog_brute_sdes_no_match": "No key found that matched the criteria.",
     }
 }
 
@@ -576,10 +626,26 @@ class StegoApp(ctk.CTk):
         self.setup_nav_frame()
         self.setup_content_frames()
 
+        # initial population of labels/buttons — ensure all widgets get correct texts
         self.update_all_texts(self.current_lang.get())
+        self.update_aes_texts()
+        self.update_sdes_texts()
+        self.update_vigenere_labels()
+        self.update_base64_labels()
+
+        # logo and theme
         self.load_network_logo()
+        # apply theme after a short delay so CTk widgets exist; still ensure texts applied above
         self.after(50, lambda: self.apply_theme_by_name("Нічна Прохолода"))
+
+        # show default frame
         self.show_xor_frame()
+
+        self.change_language()
+        self.update_aes_texts()
+        self.update_sdes_texts()
+        self.update_vigenere_labels()
+        self.update_base64_labels()
 
         self.bind("<Configure>", self.on_main_resize)
 
@@ -677,10 +743,8 @@ class StegoApp(ctk.CTk):
         self.vigenere_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.vigenere_frame.is_themeable = False
         self.base64_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.base64_frame.is_themeable = False
         self.ela_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.ela_frame.is_themeable = False
-
         self.aes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.aes_frame.is_themeable = False
         self.sdes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.sdes_frame.is_themeable = False
-
         self.settings_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.settings_frame.is_themeable = False
         self.about_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.about_frame.is_themeable = False
 
@@ -1196,6 +1260,7 @@ class StegoApp(ctk.CTk):
         self.update_sdes_texts()
         self.update_vigenere_labels()
         self.update_base64_labels()
+        # S-DES
 
     def update_vigenere_labels(self, selected_mode=None):
         lang = LANG_STRINGS[self.current_lang.get()]
@@ -1273,25 +1338,43 @@ class StegoApp(ctk.CTk):
             self.aes_output_label.configure(text=lang["output_label"])
 
     def update_sdes_texts(self):
-        lang = LANG_STRINGS[self.current_lang.get()]
-        if hasattr(self, "sdes_title"):
-            self.sdes_title.configure(text=lang["sdes_title"])
-        if hasattr(self, "sdes_mode_selector"):
-            vals = [lang["mode_encrypt"], lang["mode_decrypt"]]
-            cur = self.sdes_mode.get()
+        # Fixed: use LANG_STRINGS (was using self.translations which did not exist)
+        lang_code = self.current_lang.get()
+        lang = LANG_STRINGS.get(lang_code, LANG_STRINGS["en"])
+
+        # Update UI elements with proper keys
+        if hasattr(self, 'sdes_title'):
+            self.sdes_title.configure(text=lang.get("sdes_title", "S-DES"))
+        if hasattr(self, 'sdes_mode_selector'):
+            vals = [lang.get("mode_encrypt", "Encrypt"), lang.get("mode_decrypt", "Decrypt")]
+            cur = self.sdes_mode.get() if hasattr(self, 'sdes_mode') else ""
             self.sdes_mode_selector.configure(values=vals)
             if cur not in vals:
-                self.sdes_mode.set(vals[0])
-        if hasattr(self, "sdes_input_label"):
-            self.sdes_input_label.configure(text=lang["input_label"])
-        if hasattr(self, "sdes_brute_label"):
-            self.sdes_brute_label.configure(text=lang["sdes_bruteforce_label"])
-        if hasattr(self, "sdes_run_btn"):
-            self.sdes_run_btn.configure(text=lang["run"])
-        if hasattr(self, "sdes_brute_btn"):
-            self.sdes_brute_btn.configure(text=lang["sdes_bruteforce_run"])
-        if hasattr(self, "sdes_output_label"):
-            self.sdes_output_label.configure(text=lang["output_label"])
+                # default to encrypt
+                try:
+                    self.sdes_mode.set(vals[0])
+                except Exception:
+                    pass
+        if hasattr(self, 'sdes_input_label'):
+            self.sdes_input_label.configure(text=lang.get("sdes_input_label", "Input"))
+        if hasattr(self, 'sdes_key_label'):
+            self.sdes_key_label.configure(text=lang.get("sdes_key_label", "Key"))
+        if hasattr(self, 'sdes_output_label'):
+            self.sdes_output_label.configure(text=lang.get("sdes_output_label", "Output:"))
+        if hasattr(self, 'sdes_log_label'):
+            self.sdes_log_label.configure(text=lang.get("sdes_log_label", "Execution Log:"))
+
+        # Brute force related text
+        if hasattr(self, 'sdes_run_btn'):
+            self.sdes_run_btn.configure(text=lang.get("sdes_run", "Run S-DES"))
+        if hasattr(self, 'sdes_brute_title'):
+            self.sdes_brute_title.configure(text=lang.get("sdes_brute_title", "S-DES Brute"))
+        if hasattr(self, 'sdes_brute_ciphertext_label'):
+            self.sdes_brute_ciphertext_label.configure(text=lang.get("sdes_brute_ciphertext_label", "Ciphertext"))
+        if hasattr(self, 'sdes_known_fragment_label'):
+            self.sdes_known_fragment_label.configure(text=lang.get("sdes_brute_known_label", "Known fragment:"))
+        if hasattr(self, 'sdes_brute_btn'):
+            self.sdes_brute_btn.configure(text=lang.get("sdes_brute_run", "Start S-DES Brute-force (1024 keys)"))
 
     def update_all_texts(self, lang_code):
         lang = LANG_STRINGS.get(lang_code, LANG_STRINGS["ua"])
@@ -1432,51 +1515,116 @@ class StegoApp(ctk.CTk):
         self.aes_status_label.grid(row=8, column=0, padx=20, pady=(0, 10), sticky="w")
 
     def setup_sdes_frame_widgets(self):
+        # ВАЖЛИВО: Встановлюємо 'tab' як псевдонім для 'self.sdes_frame'
+        tab = self.sdes_frame
+
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(5, weight=1)  # Дозволяємо контейнеру виводу розтягуватися
+
+        self.sdes_title = self._create_widget(ctk.CTkLabel, tab,
+                                              font=ctk.CTkFont(size=18, weight="bold"))
+        self.sdes_title.grid(row=0, column=0, padx=20, pady=10, sticky="w")
+
+        # Use current language strings so SegmentedButton values are unique
         lang = LANG_STRINGS[self.current_lang.get()]
-        self.sdes_frame.grid_columnconfigure(0, weight=1)
-        self.sdes_title = self._create_widget(ctk.CTkLabel, self.sdes_frame, font=ctk.CTkFont(size=20, weight="bold"))
-        self.sdes_title.grid(row=0, column=0, pady=10, padx=20)
 
-        self.sdes_mode = ctk.StringVar(value=lang["mode_encrypt"])
-        self.sdes_mode_selector = self._create_widget(ctk.CTkSegmentedButton, self.sdes_frame,
-                                                      values=[lang["mode_encrypt"], lang["mode_decrypt"]],
-                                                      variable=self.sdes_mode)
-        self.sdes_mode_selector.grid(row=1, column=0, padx=20, pady=5)
+        # Створюємо віджети з коректними унікальними значеннями
+        self.sdes_mode = tk.StringVar()
+        self.sdes_mode_selector = self._create_widget(
+            ctk.CTkSegmentedButton,
+            tab,
+            values=[lang.get("mode_encrypt", "Encrypt"), lang.get("mode_decrypt", "Decrypt")],
+            variable=self.sdes_mode
+        )
+        self.sdes_mode_selector.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        # set default mode
+        try:
+            self.sdes_mode.set(lang.get("mode_encrypt", "Encrypt"))
+        except Exception:
+            pass
 
-        self.sdes_input_label = self._create_widget(ctk.CTkLabel, self.sdes_frame, text=lang["input_label"])
-        self.sdes_input_label.grid(row=2, column=0, sticky="w", padx=20)
-        self.sdes_input_textbox = self._create_widget(ctk.CTkTextbox, self.sdes_frame, height=120)
-        self.sdes_input_textbox.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
+        # --- Input Frame ---
+        self.sdes_input_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
+        self.sdes_input_frame.grid(row=2, column=0, padx=20, pady=0, sticky="nsew")
+        self.sdes_input_frame.grid_columnconfigure(0, weight=1)
 
-        key_frame = self._create_widget(ctk.CTkFrame, self.sdes_frame)
-        key_frame.grid(row=4, column=0, padx=20, pady=5, sticky="ew")
-        self.sdes_key_label = self._create_widget(ctk.CTkLabel, key_frame, text="10-bit key (0..1023):")
-        self.sdes_key_label.grid(row=0, column=0, padx=(0, 10))
-        self.sdes_key_entry = self._create_widget(ctk.CTkEntry, key_frame, width=120)
-        self.sdes_key_entry.grid(row=0, column=1, padx=(0, 10))
-        self.sdes_key_entry.insert(0, "0")
+        self.sdes_input_label = self._create_widget(ctk.CTkLabel, self.sdes_input_frame)
+        self.sdes_input_label.grid(row=0, column=0, sticky="w")
+        self.sdes_input_textbox = self._create_widget(ctk.CTkTextbox, self.sdes_input_frame, height=100)
+        self.sdes_input_textbox.grid(row=1, column=0, sticky="nsew")
 
-        self.sdes_known_fragment_entry = self._create_widget(ctk.CTkEntry, key_frame, width=200)
-        self.sdes_known_fragment_entry.grid(row=1, column=1, padx=(0, 10), pady=(6, 0))
-        self.sdes_known_fragment_entry.insert(0, "")
+        # --- Key Frame ---
+        self.sdes_key_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
+        self.sdes_key_frame.grid(row=3, column=0, padx=20, pady=0, sticky="nsew")
+        self.sdes_key_frame.grid_columnconfigure(0, weight=1)
 
-        self.sdes_brute_label = self._create_widget(ctk.CTkLabel, key_frame, text=lang["sdes_bruteforce_label"])
-        self.sdes_brute_label.grid(row=1, column=0, padx=(0, 10), pady=(6, 0))
+        self.sdes_key_label = self._create_widget(ctk.CTkLabel, self.sdes_key_frame)
+        self.sdes_key_label.grid(row=0, column=0, sticky="w")
+        self.sdes_key_entry = self._create_widget(ctk.CTkEntry, self.sdes_key_frame)
+        self.sdes_key_entry.grid(row=1, column=0, sticky="ew")
 
-        controls = self._create_widget(ctk.CTkFrame, self.sdes_frame)
-        controls.grid(row=5, column=0, padx=20, pady=10, sticky="ew")
-        self.sdes_run_btn = self._create_widget(ctk.CTkButton, controls, text=lang["run"], command=self.perform_sdes_operation)
-        self.sdes_run_btn.grid(row=0, column=0, padx=5)
-        self.sdes_brute_btn = self._create_widget(ctk.CTkButton, controls, text=lang["sdes_bruteforce_run"], command=self.perform_sdes_bruteforce)
-        self.sdes_brute_btn.grid(row=0, column=1, padx=5)
+        # --- Run Button ---
+        self.sdes_run_btn = self._create_widget(ctk.CTkButton, tab,
+                                                command=self.on_sdes_run)
+        self.sdes_run_btn.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
 
-        self.sdes_output_label = self._create_widget(ctk.CTkLabel, self.sdes_frame, text=lang["output_label"])
-        self.sdes_output_label.grid(row=6, column=0, sticky="w", padx=20)
-        self.sdes_output_textbox = self._create_widget(ctk.CTkTextbox, self.sdes_frame, height=150)
-        self.sdes_output_textbox.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="ew")
+        # --- Output & Log (Side-by-side) ---
+        self.sdes_output_container = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
+        self.sdes_output_container.grid(row=5, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        self.sdes_output_container.grid_columnconfigure((0, 1), weight=1)
+        self.sdes_output_container.grid_rowconfigure(1, weight=1)
 
-        self.sdes_status_label = self._create_widget(ctk.CTkLabel, self.sdes_frame, text="", text_color="yellow"); self.sdes_status_label.is_themeable = False
-        self.sdes_status_label.grid(row=8, column=0, padx=20, pady=(0, 10), sticky="w")
+        # Output (Left)
+        self.sdes_output_frame = self._create_widget(ctk.CTkFrame, self.sdes_output_container, fg_color="transparent")
+        self.sdes_output_frame.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
+        self.sdes_output_frame.grid_rowconfigure(1, weight=1)
+
+        self.sdes_output_label = self._create_widget(ctk.CTkLabel, self.sdes_output_frame)
+        self.sdes_output_label.grid(row=0, column=0, sticky="w")
+        self.sdes_output_textbox = self._create_widget(ctk.CTkTextbox, self.sdes_output_frame, height=150)
+        self.sdes_output_textbox.grid(row=1, column=0, sticky="nsew")
+
+        # Log (Right) - НОВИЙ
+        self.sdes_log_frame = self._create_widget(ctk.CTkFrame, self.sdes_output_container, fg_color="transparent")
+        self.sdes_log_frame.grid(row=0, column=1, padx=(10, 0), sticky="nsew")
+        self.sdes_log_frame.grid_rowconfigure(1, weight=1)
+
+        self.sdes_log_label = self._create_widget(ctk.CTkLabel, self.sdes_log_frame)
+        self.sdes_log_label.grid(row=0, column=0, sticky="w")
+        self.sdes_log_textbox = self._create_widget(ctk.CTkTextbox, self.sdes_log_frame, height=150,
+                                                    font=("Courier New", 10))
+        self.sdes_log_textbox.configure(state="disabled")  # НЕ МОЖНА РЕДАГУВАТИ
+        self.sdes_log_textbox.grid(row=1, column=0, sticky="nsew")
+
+        # --- Status Label ---
+        self.sdes_status_label = self._create_widget(ctk.CTkLabel, tab, text="",
+                                                     font=ctk.CTkFont(size=12))
+        self.sdes_status_label.grid(row=6, column=0, padx=20, pady=5, sticky="w")
+
+        # --- Separator and Brute-force ---
+        sep = self._create_widget(ctk.CTkFrame, tab, height=2, fg_color=("gray", "gray"))
+        sep.grid(row=7, column=0, padx=20, pady=10, sticky="ew")
+
+        self.sdes_brute_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
+        self.sdes_brute_frame.grid(row=8, column=0, padx=20, pady=0, sticky="nsew")
+        self.sdes_brute_frame.grid_columnconfigure(0, weight=1)
+
+        self.sdes_brute_title = self._create_widget(ctk.CTkLabel, self.sdes_brute_frame,
+                                                    font=ctk.CTkFont(size=16, weight="bold"))
+        self.sdes_brute_title.grid(row=0, column=0, sticky="w")
+
+        self.sdes_brute_ciphertext_label = self._create_widget(ctk.CTkLabel, self.sdes_brute_frame)
+        self.sdes_brute_ciphertext_label.grid(row=1, column=0, pady=(5, 0), sticky="w")
+
+        self.sdes_known_fragment_label = self._create_widget(ctk.CTkLabel, self.sdes_brute_frame)
+        self.sdes_known_fragment_label.grid(row=2, column=0, pady=(5, 0), sticky="w")
+        self.sdes_known_fragment_entry = self._create_widget(ctk.CTkEntry, self.sdes_brute_frame)
+        self.sdes_known_fragment_entry.grid(row=3, column=0, pady=5, sticky="ew")
+
+        self.sdes_brute_btn = self._create_widget(ctk.CTkButton, self.sdes_brute_frame,
+                                                  command=self.on_sdes_brute_run)
+        self.sdes_brute_btn.grid(row=4, column=0, pady=10, sticky="ew")
+
 
     # --- show/hide frames ---
     def hide_all_frames(self):
@@ -2143,7 +2291,7 @@ class StegoApp(ctk.CTk):
             try:
                 if hasattr(label, "_label") and getattr(label, "_label") is not None:
                     label._label.configure(image="", text=text)
-                label.image = None
+                    label.image = None
             except Exception:
                 try:
                     label.configure(text=text)
@@ -2407,9 +2555,373 @@ class StegoApp(ctk.CTk):
         plaintext = self.vigenere_decrypt(ciphertext, best_key)
         return best_key, best_len, plaintext
 
+    # ====================================================================
+    # --- S-DES LOGIC METHODS (NEW) ---
+    # ====================================================================
+
+    def _permute(self, original: str, p_table: Tuple[int, ...]) -> str:
+        """Виконує перестановку бітів 'original' згідно з 'p_table'."""
+        return "".join(original[i - 1] for i in p_table)
+
+    def _left_shift(self, bits: str, n: int) -> str:
+        """Виконує циклічний зсув вліво на 'n' біт."""
+        return bits[n:] + bits[:n]
+
+    def _get_sbox_val(self, input_4bit: str, s_box: List[List[int]]) -> str:
+        """Пошук значення в S-боксі."""
+        row = int(input_4bit[0] + input_4bit[3], 2)
+        col = int(input_4bit[1] + input_4bit[2], 2)
+        val = s_box[row][col]
+        return format(val, '02b')
+
+    def _f_k(self, data_4bit: str, subkey: str, log: List[str]) -> str:
+        """
+        Функція раунду Фейстеля (f_k).
+        Приймає 4-бітний вхід (права половина) та 8-бітний підключ.
+        """
+        log.append(f"    [f_k] Вхід (R): {data_4bit}")
+
+        # Використовуємо self._permute та self._get_sbox_val
+        ep_result = self._permute(data_4bit, EP)
+        log.append(f"    [f_k] Після E/P: {ep_result}")
+
+        xor_result = format(int(ep_result, 2) ^ int(subkey, 2), '08b')
+        log.append(f"    [f_k] XOR з K:  {xor_result} (Ключ: {subkey})")
+
+        left_4 = xor_result[:4]
+        right_4 = xor_result[4:]
+
+        s0_result = self._get_sbox_val(left_4, S0)
+        log.append(f"    [f_k] S0 вхід: {left_4}, S0 вихід: {s0_result}")
+        s1_result = self._get_sbox_val(right_4, S1)
+        log.append(f"    [f_k] S1 вхід: {right_4}, S1 вихід: {s1_result}")
+
+        s_combined = s0_result + s1_result
+
+        p4_result = self._permute(s_combined, P4)
+        log.append(f"    [f_k] Після P4: {p4_result}")
+
+        return p4_result
+
+    def generate_keys(self, key10: str, log: List[str]) -> Tuple[str, str]:
+        """Генерує два 8-бітні підключі (K1, K2) з 10-бітного ключа."""
+        log.append("--- Генерація ключів ---")
+        log.append(f"Вхідний ключ (10-біт): {key10}")
+
+        p10_result = self._permute(key10, P10)
+        log.append(f"Після P10:            {p10_result}")
+
+        ls_left = p10_result[:5]
+        ls_right = p10_result[5:]
+        log.append(f"Поділ: L={ls_left}, R={ls_right}")
+
+        ls1_left = self._left_shift(ls_left, 1)
+        ls1_right = self._left_shift(ls_right, 1)
+        log.append(f"Після LS-1: L={ls1_left}, R={ls1_right}")
+
+        k1 = self._permute(ls1_left + ls1_right, P8)
+        log.append(f"ПІДКЛЮЧ K1:         {k1}")
+
+        ls2_left = self._left_shift(ls1_left, 2)
+        ls2_right = self._left_shift(ls1_right, 2)
+        log.append(f"Після LS-2: L={ls2_left}, R={ls2_right}")
+
+        k2 = self._permute(ls2_left + ls2_right, P8)
+        log.append(f"ПІДКЛЮЧ K2:         {k2}")
+        log.append("-------------------------")
+
+        return k1, k2
+
+    def sdes_process_block(self, block8: str, k1: str, k2: str, log: List[str]) -> str:
+        """Виконує шифрування (або дешифрування) одного 8-бітного блоку."""
+        log.append(f"Обробка блоку: {block8}")
+
+        ip_result = self._permute(block8, IP)
+        log.append(f"Після IP:      {ip_result}")
+
+        l0 = ip_result[:4]
+        r0 = ip_result[4:]
+        log.append(f"Поділ: L0={l0}, R0={r0}")
+
+        log.append("\n--- Раунд 1 (з K1) ---")
+        f_result1 = self._f_k(r0, k1, log)
+        l1 = format(int(l0, 2) ^ int(f_result1, 2), '04b')
+        r1 = r0
+        log.append(f"[Раунд 1] L1 (L0^f_k): {l1}")
+        log.append(f"[Раунд 1] R1 (R0):    {r1}")
+
+        log.append("\n--- Раунд 2 (з K2) ---")
+        f_result2 = self._f_k(r1, k2, log)
+        l2 = format(int(l1, 2) ^ int(f_result2, 2), '04b')
+        r2 = r1
+        log.append(f"[Раунд 2] L2 (L1^f_k): {l2}")
+        log.append(f"[Раунд 2] R2 (R1):    {r2}")
+
+        combined = l2 + r2
+        log.append(f"\nРезультат 2-х раундів: {combined}")
+
+        final_result = self._permute(combined, IP_INV)
+        log.append(f"Кінцевий результат (після IP-1): {final_result}")
+
+        return final_result
+
+    def sdes_encrypt(self, text: str, key10: str) -> Tuple[bytes, str]:
+        """
+        Шифрує текстовий рядок 'text' з 10-бітним ключем 'key10'.
+        Повертає (ciphertext_bytes, log_string).
+        """
+        log = ["=== S-DES ШИФРУВАННЯ ==="]
+        try:
+            if not all(c in '01' for c in key10) or len(key10) != 10:
+                return b"", "Помилка: Ключ має бути 10-бітним (0 або 1)."
+
+            k1, k2 = self.generate_keys(key10, log)
+
+            input_bytes = text.encode('utf-8')
+            output_bytes = bytearray()
+
+            log.append("\n--- Обробка байтів ---")
+
+            for i, byte in enumerate(input_bytes):
+                log.append(f"\n[Байт {i + 1}: {format(byte, '08b')} ('{chr(byte)}')]")
+                block8 = format(byte, '08b')
+                encrypted_block = self.sdes_process_block(block8, k1, k2, log)
+                output_bytes.append(int(encrypted_block, 2))
+
+            log.append("=========================")
+            return bytes(output_bytes), "\n".join(log)
+
+        except Exception as e:
+            log.append(f"\nКРИТИЧНА ПОМИЛКА: {e}")
+            return b"", "\n".join(log)
+
+    def sdes_decrypt(self, cipher_bytes: bytes, key10: str) -> Tuple[str, str]:
+        """
+        Розшифровує 'cipher_bytes' з 10-бітним ключем 'key10'.
+        Повертає (plaintext_string, log_string).
+        """
+        log = ["=== S-DES ДЕШИФРУВАННЯ ==="]
+        try:
+            if not all(c in '01' for c in key10) or len(key10) != 10:
+                return "", "Помилка: Ключ має бути 10-бітним (0 або 1)."
+
+            k1, k2 = self.generate_keys(key10, log)
+            log.append(f"\n*** Використання ключів для дешифрування: K1={k2}, K2={k1} ***")
+
+            output_bytes = bytearray()
+            log.append("\n--- Обробка байтів ---")
+
+            for i, byte in enumerate(cipher_bytes):
+                log.append(f"\n[Байт {i + 1}: {format(byte, '08b')}]")
+                block8 = format(byte, '08b')
+                decrypted_block = self.sdes_process_block(block8, k2, k1, log)
+                output_bytes.append(int(decrypted_block, 2))
+
+            log.append("=========================")
+
+            plaintext = output_bytes.decode('utf-8', errors='ignore')
+            return plaintext, "\n".join(log)
+
+        except Exception as e:
+            log.append(f"\nКРИТИЧНА ПОМИЛКА: {e}")
+            return "", "\n".join(log)
+
+    def sdes_bruteforce(self, cipherbytes: bytes, known_fragment: Optional[bytes] = None, max_results=100) -> List[
+        Tuple[str, str]]:
+        """
+        Криптоаналіз: перебирає всі 1024 ключі.
+        Повертає список [(key_str, plaintext_str)].
+        """
+        results = []
+
+        for key_int in range(1024):  # 2^10 = 1024
+            key10 = format(key_int, '010b')
+
+            try:
+                log_dummy = []
+                k1_dummy, k2_dummy = self.generate_keys(key10, log_dummy)
+
+                output_bytes = bytearray()
+                for byte in cipherbytes:
+                    block8 = format(byte, '08b')
+                    decrypted_block = self.sdes_process_block(block8, k2_dummy, k1_dummy, log_dummy)
+                    output_bytes.append(int(decrypted_block, 2))
+
+                if known_fragment:
+                    if known_fragment in output_bytes:
+                        plaintext = output_bytes.decode('utf-8', errors='ignore')
+                        results.append((key10, plaintext))
+                else:
+                    plaintext = output_bytes.decode('utf-8', errors='ignore')
+                    results.append((key10, plaintext))
+
+                if len(results) >= max_results:
+                    break
+
+            except Exception:
+                continue
+
+        return results
+
+    # ====================================================================
+    # --- END S-DES LOGIC METHODS ---
+    # ====================================================================
+    def _safe_set_log_text(self, textbox_widget, content: str):
+        """Вставляє текст у віджет логу, який вимкнено."""
+        try:
+            if not textbox_widget or not textbox_widget.winfo_exists():
+                return
+            textbox_widget.configure(state="normal")
+            textbox_widget.delete("1.0", tk.END)
+            textbox_widget.insert("1.0", content)
+            textbox_widget.configure(state="disabled")
+        except Exception as e:
+            print(f"Error setting log text: {e}")
+
+    def on_sdes_run(self):
+        lang = LANG_STRINGS[self.current_lang.get()]
+        mode = self.sdes_mode.get()
+        key10 = self.sdes_key_entry.get().strip()
+        data_in = self.sdes_input_textbox.get("1.0", tk.END).strip()
+
+        # Очищення полів перед виконанням
+        self._safe_set_textbox_text(self.sdes_output_textbox, "")
+        self._safe_set_log_text(self.sdes_log_textbox, "")  # Очищуємо лог
+        self.sdes_status_label.configure(text="")
+
+        if not key10 or not data_in:
+            self.sdes_status_label.configure(text=lang["vigenere_status_error_input"], text_color="red")
+            return
+
+        if len(key10) != 10 or not all(c in '01' for c in key10):
+            self.sdes_status_label.configure(text=lang["sdes_status_error_key"], text_color="red")
+            return
+
+        try:
+            if mode == lang["mode_encrypt"]:
+                # 1. Шифрування
+                # Викликаємо метод self.sdes_encrypt
+                ciphertext_bytes, log_str = self.sdes_encrypt(data_in, key10)
+
+                if not ciphertext_bytes and "Помилка" in log_str:
+                    self.sdes_status_label.configure(text=log_str, text_color="red")
+                    self._safe_set_log_text(self.sdes_log_textbox, log_str)
+                    return
+
+                result_b64 = base64.b64encode(ciphertext_bytes).decode('utf-8')
+                self._safe_set_textbox_text(self.sdes_output_textbox, result_b64)
+                self._safe_set_log_text(self.sdes_log_textbox, log_str)  # Вставляємо лог
+                self.sdes_status_label.configure(text=lang["sdes_status_ok"].format(mode.lower()), text_color="green")
+
+            else:
+                # 2. Дешифрування
+                try:
+                    cipher_bytes = base64.b64decode(data_in)
+                except Exception:
+                    self.sdes_status_label.configure(text=lang["sdes_status_error_b64"], text_color="red")
+                    return
+
+                # Викликаємо метод self.sdes_decrypt
+                plaintext, log_str = self.sdes_decrypt(cipher_bytes, key10)
+
+                if not plaintext and "Помилка" in log_str:
+                    self.sdes_status_label.configure(text=log_str, text_color="red")
+                    self._safe_set_log_text(self.sdes_log_textbox, log_str)
+                    return
+
+                self._safe_set_textbox_text(self.sdes_output_textbox, plaintext)
+                self._safe_set_log_text(self.sdes_log_textbox, log_str)  # Вставляємо лог
+                self.sdes_status_label.configure(text=lang["sdes_status_ok"].format(mode.lower()), text_color="green")
+
+        except Exception as e:
+            self.sdes_status_label.configure(text=f"Помилка виконання: {e}", text_color="red")
+            self._safe_set_log_text(self.sdes_log_textbox, f"Помилка: {e}")
+
+    def on_sdes_brute_run(self):
+        lang = LANG_STRINGS[self.current_lang.get()]
+        # Вхідні дані (шифртекст) беруться з ОСНОВНОГО поля вводу
+        data_b64 = self.sdes_input_textbox.get("1.0", tk.END).strip()
+        known_frag_str = self.sdes_known_fragment_entry.get().strip()
+
+        known_frag = known_frag_str.encode('utf-8') if known_frag_str else None
+
+        if not data_b64:
+            self.sdes_status_label.configure(text=lang["sdes_brute_ciphertext_label"], text_color="red")
+            return
+
+        try:
+            cipherbytes = base64.b64decode(data_b64)
+        except Exception:
+            self.sdes_status_label.configure(text=lang["sdes_status_error_b64"], text_color="red")
+            return
+
+        self.sdes_status_label.configure(text=lang["brute_status"], text_color="yellow")
+        self.update_idletasks()
+        self.sdes_brute_btn.configure(state="disabled")
+
+        def worker():
+            start = time.time()
+            # ВИКЛИК НОВОГО МЕТОДУ self.sdes_bruteforce
+            matches = self.sdes_bruteforce(cipherbytes, known_fragment=known_frag, max_results=100)
+            duration = time.time() - start
+            self.after(0, self.on_sdes_brute_done, matches, duration)
+
+        # Запускаємо bruteforce у окремому потоці
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_sdes_brute_done(self, matches, duration):
+        lang = LANG_STRINGS[self.current_lang.get()]
+        self.sdes_brute_btn.configure(state="normal")
+        # Ensure key for message formatting exists; fallback if missing
+        brute_done_text = lang.get("brute_done", "Brute-force done. Found:")
+        try:
+            # If brute_done is expected to take a duration, keep original behavior safe
+            self.sdes_status_label.configure(text=brute_done_text, text_color="green")
+        except Exception:
+            self.sdes_status_label.configure(text=brute_done_text, text_color="green")
+
+        if not matches:
+            msg = lang.get("dialog_brute_sdes_no_match", "No key found that matched the criteria.")
+        else:
+            result_text = ""
+            for key, text in matches:
+                preview = text.replace('\n', ' ').replace('\r', '')[:60]
+                result_text += lang.get("dialog_brute_sdes_match", "Key: {0}\nPlaintext: {1}...\n").format(key, preview)
+
+            msg = lang.get("dialog_brute_sdes_msg", "Found {0} possible matches (max 100 shown):\n\n{1}").format(len(matches), result_text)
+
+        # Show a simple messagebox with results (original code attempted to instantiate StegoApp incorrectly)
+        try:
+            messagebox.showinfo("S-DES Brute-force", msg)
+        except Exception:
+            print(msg)
+
+        # Якщо є збіг, помістимо перший у поля
+        if matches:
+            best_key, best_text = matches[0]
+            try:
+                self.sdes_key_entry.delete(0, tk.END)
+                self.sdes_key_entry.insert(0, best_key)
+                self._safe_set_textbox_text(self.sdes_output_textbox, best_text)
+                # set mode to decrypt if possible
+                try:
+                    self.sdes_mode.set(lang.get("mode_decrypt", "Decrypt"))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+    def _safe_set_textbox_text(self, textbox_widget, content: str):
+        try:
+            if not textbox_widget or not textbox_widget.winfo_exists():
+                return
+            textbox_widget.delete("1.0", tk.END)
+            textbox_widget.insert("1.0", content)
+        except Exception as e:
+            print(f"Error setting textbox text: {e}")
+
 
 # Entry point
 if __name__ == "__main__":
     app = StegoApp()
     app.mainloop()
-
