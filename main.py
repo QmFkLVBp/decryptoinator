@@ -273,6 +273,15 @@ LANG_STRINGS = {
         "subst_status_error_input": "Помилка: Введіть шифротекст.",
         "subst_status_error_import": "Помилка: Невалідний JSON файл.",
         "subst_status_error_export": "Помилка: Не вдалося зберегти файл.",
+        "subst_auto_replace": "Автоматична заміна",
+        "subst_undo": "Відмінити",
+        "subst_redo": "Повторити",
+        "subst_status_ok_auto": "Автоматичну заміну застосовано.",
+        "subst_export_txt": "Експорт TXT",
+        "subst_import_txt": "Імпорт TXT",
+        "subst_status_ok_export_txt": "Таблицю експортовано в TXT.",
+        "subst_status_ok_import_txt": "Таблицю імпортовано з TXT.",
+        "subst_status_error_import_txt": "Помилка: Невалідний TXT файл.",
     },
     "en": {
         "title": "DECRYPTOINATOR 1000",
@@ -442,6 +451,15 @@ LANG_STRINGS = {
         "subst_status_error_input": "Error: Enter ciphertext.",
         "subst_status_error_import": "Error: Invalid JSON file.",
         "subst_status_error_export": "Error: Could not save file.",
+        "subst_auto_replace": "Auto Replace",
+        "subst_undo": "Undo",
+        "subst_redo": "Redo",
+        "subst_status_ok_auto": "Auto replacement applied.",
+        "subst_export_txt": "Export TXT",
+        "subst_import_txt": "Import TXT",
+        "subst_status_ok_export_txt": "Mapping exported to TXT.",
+        "subst_status_ok_import_txt": "Mapping imported from TXT.",
+        "subst_status_error_import_txt": "Error: Invalid TXT file.",
     }
 }
 
@@ -1008,6 +1026,31 @@ UKRAINIAN_BIGRAM_FREQ = [
     ('ЛИ', 0.009), ('ЛО', 0.008), ('АВ', 0.008), ('ІН', 0.008), ('ІВ', 0.008),
 ]
 
+# Lowercase frequency dictionaries for algorithm use (normalized)
+ukr_letter_freq = {letter.lower(): freq for letter, freq in UKRAINIAN_LETTER_FREQ}
+ukr_bigrams = {bg.lower(): freq for bg, freq in UKRAINIAN_BIGRAM_FREQ}
+en_letter_freq = {letter.lower(): freq for letter, freq in ENGLISH_LETTER_FREQ}
+en_bigrams = {bg.lower(): freq for bg, freq in ENGLISH_BIGRAM_FREQ}
+
+# Connectivity matrix: scores adjacency likelihood for letter pairs
+# Higher scores indicate common adjacent pairs; can be extended with more pairs
+connectivity_matrix = {
+    # Ukrainian common pairs (adjacent in words)
+    'на': 2.0, 'по': 2.0, 'ст': 2.0, 'но': 1.8, 'ко': 1.8,
+    'ро': 1.7, 'ва': 1.7, 'та': 1.6, 'ти': 1.6, 'не': 1.5,
+    'ні': 1.5, 'ра': 1.5, 'ен': 1.4, 'ан': 1.4, 'ов': 1.4,
+    'ор': 1.3, 'ла': 1.3, 'ом': 1.3, 'ин': 1.2, 'ат': 1.2,
+    'ер': 1.2, 'ка': 1.2, 'ли': 1.1, 'ло': 1.1, 'ав': 1.1,
+    'ін': 1.1, 'ів': 1.0, 'пр': 1.0, 'ни': 1.0, 'во': 1.0,
+    # English common pairs
+    'th': 2.0, 'he': 2.0, 'in': 1.8, 'er': 1.8, 'an': 1.7,
+    're': 1.7, 'on': 1.6, 'at': 1.6, 'en': 1.5, 'nd': 1.5,
+    'ti': 1.5, 'es': 1.4, 'or': 1.4, 'te': 1.4, 'of': 1.3,
+    'ed': 1.3, 'is': 1.3, 'it': 1.2, 'al': 1.2, 'ar': 1.2,
+    'st': 1.2, 'to': 1.1, 'nt': 1.1, 'ng': 1.1, 'se': 1.0,
+    'ha': 1.0, 'as': 1.0, 'ou': 1.0, 'io': 1.0, 'le': 1.0,
+}
+
 
 def compute_char_freq(text: str) -> List[Tuple[str, int, float]]:
     """
@@ -1124,6 +1167,134 @@ def suggest_mapping_by_frequency(text: str, lang: str, limit: int = None) -> dic
     return mapping
 
 
+def compute_cipher_frequencies_lower(text: str) -> dict:
+    """
+    Compute normalized frequency of each character in text (lowercase).
+    Returns dict of {char_lower: frequency} normalized to sum to 1.0.
+    Only considers printable non-whitespace characters.
+    """
+    filtered = [c.lower() for c in text if c.isprintable() and not c.isspace()]
+    if not filtered:
+        return {}
+    counter = Counter(filtered)
+    total = len(filtered)
+    return {char: count / total for char, count in counter.items()}
+
+
+def compare_frequencies(cipher_freq: dict, lang_freq: dict) -> dict:
+    """
+    Compare cipher symbol frequencies to language letter frequencies.
+    Maps cipher symbols (sorted by frequency desc) to language letters (sorted by frequency desc).
+    Returns dict of {cipher_symbol: suggested_letter}.
+    """
+    # Sort cipher symbols by frequency (descending)
+    cipher_sorted = sorted(cipher_freq.items(), key=lambda x: x[1], reverse=True)
+    # Sort language letters by frequency (descending)
+    lang_sorted = sorted(lang_freq.items(), key=lambda x: x[1], reverse=True)
+    
+    mapping = {}
+    for i, (cipher_sym, _) in enumerate(cipher_sorted):
+        if i < len(lang_sorted):
+            mapping[cipher_sym] = lang_sorted[i][0]
+    return mapping
+
+
+def refine_with_bigrams(text: str, mapping: dict, bigrams: dict, conn_matrix: dict) -> dict:
+    """
+    Refine a mapping using bigram frequencies and connectivity scoring.
+    Analyzes the ciphertext bigrams, applies the current mapping, and adjusts
+    mappings based on how well they produce common target language bigrams.
+    
+    Returns a refined mapping dict.
+    """
+    if not mapping or not text:
+        return mapping
+    
+    # Compute ciphertext bigrams (lowercase)
+    filtered = [c.lower() for c in text if c.isalnum()]
+    if len(filtered) < 2:
+        return mapping
+    
+    cipher_bigrams = Counter([''.join(pair) for pair in zip(filtered, filtered[1:])])
+    
+    # Score the current mapping based on how well it produces common bigrams
+    refined = dict(mapping)
+    
+    # For each pair of cipher symbols that appear together frequently,
+    # check if their mapped values form a common bigram in the target language
+    top_cipher_bigrams = cipher_bigrams.most_common(20)
+    
+    for cipher_bg, count in top_cipher_bigrams:
+        if len(cipher_bg) != 2:
+            continue
+        c1, c2 = cipher_bg[0], cipher_bg[1]
+        
+        # Get current mapped values
+        m1 = refined.get(c1, c1)
+        m2 = refined.get(c2, c2)
+        mapped_bg = (m1 + m2).lower()
+        
+        # Check connectivity score
+        conn_score = conn_matrix.get(mapped_bg, 0)
+        bigram_score = bigrams.get(mapped_bg, 0)
+        
+        # If the mapped bigram is common, increase confidence (no change needed)
+        # If not, this could indicate a need for swap, but we keep it simple
+        # Advanced: could try swapping mappings to improve bigram match rate
+        
+    return refined
+
+
+def auto_suggest_substitution(text: str, lang: str) -> dict:
+    """
+    AutoSuggest pipeline for monoalphabetic substitution cipher.
+    
+    Steps:
+    a) Detect cipher symbols (existing detect_cipher_symbols)
+    b) Compute char freq and bigram freq on ciphertext
+    c) Build a base mapping via frequency alignment (compare_frequencies)
+    d) Refine mapping with bigrams and connectivity (refine_with_bigrams)
+    e) Return suggested mapping
+    
+    lang: 'ua' or 'en' for target language
+    """
+    if not text or not text.strip():
+        return {}
+    
+    # a) Detect cipher symbols (limit to 100 for performance)
+    cipher_symbols = detect_cipher_symbols(text)
+    if not cipher_symbols:
+        return {}
+    cipher_symbols = cipher_symbols[:100]
+    
+    # b) Compute cipher frequencies (lowercase)
+    cipher_freq = compute_cipher_frequencies_lower(text)
+    
+    # c) Get language frequency data
+    if lang == 'ua':
+        lang_freq = ukr_letter_freq
+        bigrams = ukr_bigrams
+    else:
+        lang_freq = en_letter_freq
+        bigrams = en_bigrams
+    
+    # d) Build base mapping via frequency comparison
+    base_mapping = compare_frequencies(cipher_freq, lang_freq)
+    
+    # e) Refine with bigrams and connectivity
+    refined_mapping = refine_with_bigrams(text, base_mapping, bigrams, connectivity_matrix)
+    
+    # Convert back to original case if needed (match original cipher symbols)
+    final_mapping = {}
+    for orig_sym in cipher_symbols:
+        lower_sym = orig_sym.lower()
+        if lower_sym in refined_mapping:
+            # Use uppercase letter for result to match Ukrainian/English uppercase convention
+            final_mapping[orig_sym] = refined_mapping[lower_sym].upper()
+    
+    return final_mapping
+
+
 def serialize_mapping(mapping: dict) -> str:
     """Serialize mapping dict to JSON string."""
     return json.dumps({"mapping": mapping}, ensure_ascii=False, indent=2)
@@ -1178,6 +1349,10 @@ class StegoApp(ctk.CTk):
 
         self.vigenere_mode = ctk.StringVar(value=LANG_STRINGS[self.current_lang.get()]["vigenere_mode_decrypt"])
         self.base64_mode = ctk.StringVar(value=LANG_STRINGS[self.current_lang.get()]["base64_mode_encode"])
+
+        # Substitution undo/redo stacks
+        self.subst_undo_stack = []
+        self.subst_redo_stack = []
 
         self.logo_image = None
         self._resize_after_id = None
@@ -2266,6 +2441,16 @@ class StegoApp(ctk.CTk):
             self.subst_export_btn.configure(text=lang.get("subst_export", "Export"))
         if hasattr(self, 'subst_import_btn'):
             self.subst_import_btn.configure(text=lang.get("subst_import", "Import"))
+        if hasattr(self, 'subst_auto_replace_btn'):
+            self.subst_auto_replace_btn.configure(text=lang.get("subst_auto_replace", "Auto Replace"))
+        if hasattr(self, 'subst_undo_btn'):
+            self.subst_undo_btn.configure(text=lang.get("subst_undo", "Undo"))
+        if hasattr(self, 'subst_redo_btn'):
+            self.subst_redo_btn.configure(text=lang.get("subst_redo", "Redo"))
+        if hasattr(self, 'subst_export_txt_btn'):
+            self.subst_export_txt_btn.configure(text=lang.get("subst_export_txt", "Export TXT"))
+        if hasattr(self, 'subst_import_txt_btn'):
+            self.subst_import_txt_btn.configure(text=lang.get("subst_import_txt", "Import TXT"))
         if hasattr(self, 'subst_output_label'):
             self.subst_output_label.configure(text=lang.get("subst_output_label", "Decrypted Result:"))
         if hasattr(self, 'subst_lang_label'):
@@ -2628,7 +2813,7 @@ class StegoApp(ctk.CTk):
         right_frame.grid(row=1, column=1, rowspan=4, padx=(10, 20), pady=10, sticky="nsew")
         right_frame.grid_columnconfigure(0, weight=1)
         right_frame.grid_rowconfigure(1, weight=1)  # mapping table
-        right_frame.grid_rowconfigure(5, weight=1)  # output textbox - give it weight too
+        right_frame.grid_rowconfigure(6, weight=1)  # output textbox - give it weight too
 
         # Mapping table label and language selector
         mapping_header = self._create_widget(ctk.CTkFrame, right_frame, fg_color="transparent")
@@ -2685,7 +2870,7 @@ class StegoApp(ctk.CTk):
                                                         command=self.remove_mapping_row)
         self.subst_remove_row_btn.grid(row=0, column=1, padx=5)
 
-        # Action buttons frame
+        # Action buttons frame - first row
         action_btns_frame = self._create_widget(ctk.CTkFrame, right_frame, fg_color="transparent")
         action_btns_frame.grid(row=3, column=0, pady=5, sticky="ew")
 
@@ -2697,23 +2882,47 @@ class StegoApp(ctk.CTk):
                                                      command=self.perform_subst_suggest)
         self.subst_suggest_btn.grid(row=0, column=1, padx=3)
 
+        self.subst_auto_replace_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=100,
+                                                          command=self.perform_subst_auto_replace)
+        self.subst_auto_replace_btn.grid(row=0, column=2, padx=3)
+
         self.subst_clear_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
                                                    command=self.perform_subst_clear)
-        self.subst_clear_btn.grid(row=0, column=2, padx=3)
+        self.subst_clear_btn.grid(row=0, column=3, padx=3)
 
-        self.subst_export_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
+        # Second row of action buttons (Undo/Redo, Export/Import)
+        action_btns_frame2 = self._create_widget(ctk.CTkFrame, right_frame, fg_color="transparent")
+        action_btns_frame2.grid(row=4, column=0, pady=2, sticky="ew")
+
+        self.subst_undo_btn = self._create_widget(ctk.CTkButton, action_btns_frame2, width=70,
+                                                  command=self.perform_subst_undo)
+        self.subst_undo_btn.grid(row=0, column=0, padx=3)
+
+        self.subst_redo_btn = self._create_widget(ctk.CTkButton, action_btns_frame2, width=70,
+                                                  command=self.perform_subst_redo)
+        self.subst_redo_btn.grid(row=0, column=1, padx=3)
+
+        self.subst_export_btn = self._create_widget(ctk.CTkButton, action_btns_frame2, width=70,
                                                     command=self.perform_subst_export)
-        self.subst_export_btn.grid(row=0, column=3, padx=3)
+        self.subst_export_btn.grid(row=0, column=2, padx=3)
 
-        self.subst_import_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
+        self.subst_import_btn = self._create_widget(ctk.CTkButton, action_btns_frame2, width=70,
                                                     command=self.perform_subst_import)
-        self.subst_import_btn.grid(row=0, column=4, padx=3)
+        self.subst_import_btn.grid(row=0, column=3, padx=3)
+
+        self.subst_export_txt_btn = self._create_widget(ctk.CTkButton, action_btns_frame2, width=80,
+                                                        command=self.perform_subst_export_txt)
+        self.subst_export_txt_btn.grid(row=0, column=4, padx=3)
+
+        self.subst_import_txt_btn = self._create_widget(ctk.CTkButton, action_btns_frame2, width=80,
+                                                        command=self.perform_subst_import_txt)
+        self.subst_import_txt_btn.grid(row=0, column=5, padx=3)
 
         # Output textbox - INCREASED height for better visibility of results
         self.subst_output_label = self._create_widget(ctk.CTkLabel, right_frame)
-        self.subst_output_label.grid(row=4, column=0, sticky="w")
+        self.subst_output_label.grid(row=5, column=0, sticky="w")
         self.subst_output_textbox = self._create_widget(ctk.CTkTextbox, right_frame, height=150)
-        self.subst_output_textbox.grid(row=5, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_output_textbox.grid(row=6, column=0, pady=(0, 10), sticky="nsew")
 
         # Status label
         self.subst_status_label = self._create_widget(ctk.CTkLabel, tab, text="",
@@ -2810,6 +3019,9 @@ class StegoApp(ctk.CTk):
             self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
             return
 
+        # Save state before apply
+        self.snapshot_current_mapping()
+
         mapping = self.get_current_mapping()
         result = apply_substitution_mapping(text, mapping)
 
@@ -2829,6 +3041,9 @@ class StegoApp(ctk.CTk):
         if not text:
             self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
             return
+
+        # Save state before suggest
+        self.snapshot_current_mapping()
 
         # Determine which language to use for frequency baseline
         freq_lang_value = self.subst_freq_lang_var.get()
@@ -2852,6 +3067,8 @@ class StegoApp(ctk.CTk):
     def perform_subst_clear(self):
         """Clear the mapping table."""
         lang = LANG_STRINGS[self.current_lang.get()]
+        # Save state before clear
+        self.snapshot_current_mapping()
         while self.subst_mapping_rows:
             self.remove_mapping_row()
         # Re-add a few empty rows for user convenience
@@ -2898,11 +3115,217 @@ class StegoApp(ctk.CTk):
                 json_str = f.read()
 
             mapping = deserialize_mapping(json_str)
+            self.snapshot_current_mapping()  # Save state before import
             self.set_mapping_rows(mapping)
             self.subst_status_label.configure(text=lang["subst_status_ok_import"], text_color="green")
         except Exception as e:
             logger.error(f"Import mapping failed: {e}")
             self.subst_status_label.configure(text=lang['subst_status_error_import'], text_color="red")
+
+    def snapshot_current_mapping(self):
+        """Save the current mapping state to the undo stack."""
+        mapping = self.get_current_mapping()
+        self.subst_undo_stack.append(mapping)
+        # Clear redo stack when a new action is taken
+        self.subst_redo_stack.clear()
+        # Limit stack size to prevent memory issues
+        if len(self.subst_undo_stack) > 50:
+            self.subst_undo_stack.pop(0)
+
+    def restore_mapping(self, mapping: dict):
+        """Restore a mapping from a snapshot and apply it to the UI."""
+        self.set_mapping_rows(mapping)
+        # Apply the mapping
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+        if text:
+            result = apply_substitution_mapping(text, mapping)
+            self.subst_output_textbox.delete("1.0", tk.END)
+            self.subst_output_textbox.insert("1.0", result)
+
+    def perform_subst_undo(self):
+        """Undo the last mapping change."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        if not self.subst_undo_stack:
+            return
+        
+        # Save current state to redo stack
+        current = self.get_current_mapping()
+        self.subst_redo_stack.append(current)
+        
+        # Restore previous state
+        prev_mapping = self.subst_undo_stack.pop()
+        self.restore_mapping(prev_mapping)
+        self.subst_status_label.configure(text=lang.get("subst_undo", "Undo"), text_color="gray")
+
+    def perform_subst_redo(self):
+        """Redo the last undone mapping change."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        if not self.subst_redo_stack:
+            return
+        
+        # Save current state to undo stack
+        current = self.get_current_mapping()
+        self.subst_undo_stack.append(current)
+        
+        # Restore redo state
+        next_mapping = self.subst_redo_stack.pop()
+        self.restore_mapping(next_mapping)
+        self.subst_status_label.configure(text=lang.get("subst_redo", "Redo"), text_color="gray")
+
+    def perform_subst_auto_replace(self):
+        """
+        Auto Replace: Run auto_suggest_substitution on the current ciphertext,
+        populate mapping table with suggested mapping, apply substitution, and show result.
+        """
+        lang = LANG_STRINGS[self.current_lang.get()]
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+
+        if not text:
+            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
+            return
+
+        # Save current state before auto-replace
+        self.snapshot_current_mapping()
+
+        # Determine which language to use for frequency baseline
+        freq_lang_value = self.subst_freq_lang_var.get()
+        if freq_lang_value == lang.get("subst_lang_en", "English"):
+            target_lang = "en"
+        else:
+            target_lang = "ua"
+
+        # Run auto suggestion pipeline
+        suggested = auto_suggest_substitution(text, target_lang)
+
+        if not suggested:
+            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
+            return
+
+        # Update mapping table with suggestions
+        self.set_mapping_rows(suggested)
+
+        # Apply substitution and show result
+        result = apply_substitution_mapping(text, suggested)
+        self.subst_output_textbox.delete("1.0", tk.END)
+        self.subst_output_textbox.insert("1.0", result)
+
+        # Also trigger the frequency analysis to update the display
+        self.perform_subst_analyze()
+
+        # Highlight likely letters based on confidence
+        self.highlight_mapping_confidence(text, target_lang)
+
+        self.subst_status_label.configure(text=lang.get("subst_status_ok_auto", "Auto replacement applied."), text_color="green")
+
+    def highlight_mapping_confidence(self, text: str, lang: str):
+        """
+        Highlight mapping entries based on confidence level.
+        High-probability mappings get light green background,
+        low-probability get light red background.
+        """
+        if lang == 'ua':
+            lang_freq = ukr_letter_freq
+        else:
+            lang_freq = en_letter_freq
+
+        # Calculate cipher symbol frequencies
+        cipher_freq = compute_cipher_frequencies_lower(text)
+        
+        # Sort both by frequency
+        cipher_sorted = sorted(cipher_freq.items(), key=lambda x: x[1], reverse=True)
+        lang_sorted = sorted(lang_freq.items(), key=lambda x: x[1], reverse=True)
+        
+        # Create a confidence score for each position
+        # Higher positions (more frequent) get higher confidence
+        for idx, (cipher_entry, plain_entry) in enumerate(self.subst_mapping_rows):
+            try:
+                # Top quartile = high confidence (green)
+                # Bottom quartile = low confidence (red)
+                # Middle = neutral (default)
+                total = len(self.subst_mapping_rows)
+                if total == 0:
+                    continue
+                    
+                position_ratio = idx / total
+                
+                if position_ratio <= 0.25:
+                    # High confidence - light green
+                    self.set_entry_confidence(plain_entry, "high")
+                elif position_ratio >= 0.75:
+                    # Low confidence - light red
+                    self.set_entry_confidence(plain_entry, "low")
+                else:
+                    # Neutral - default
+                    self.set_entry_confidence(plain_entry, "neutral")
+            except Exception:
+                pass
+
+    def set_entry_confidence(self, entry, level: str):
+        """Set entry background color based on confidence level."""
+        try:
+            if level == "high":
+                entry.configure(fg_color="#90EE90")  # Light green
+            elif level == "low":
+                entry.configure(fg_color="#FFB6C1")  # Light red/pink
+            else:
+                entry.configure(fg_color=None)  # Default
+        except Exception:
+            pass
+
+    def perform_subst_export_txt(self):
+        """Export the current mapping to a TXT file (cipher=plain format)."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        mapping = self.get_current_mapping()
+
+        try:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text Files", "*.txt"), ("All files", "*.*")],
+                initialfile="mapping.txt"
+            )
+            if not path:
+                return
+
+            # Write lines in "cipher=plain" format
+            lines = [f"{cipher}={plain}" for cipher, plain in mapping.items()]
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines))
+
+            self.subst_status_label.configure(text=lang.get("subst_status_ok_export_txt", "Mapping exported to TXT."), text_color="green")
+        except Exception as e:
+            logger.error(f"Export TXT mapping failed: {e}")
+            self.subst_status_label.configure(text=lang.get('subst_status_error_export', "Export error"), text_color="red")
+
+    def perform_subst_import_txt(self):
+        """Import a mapping from a TXT file (cipher=plain format)."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+
+        try:
+            path = filedialog.askopenfilename(
+                filetypes=[("Text Files", "*.txt"), ("All files", "*.*")]
+            )
+            if not path:
+                return
+
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Parse lines in "cipher=plain" format
+            mapping = {}
+            for line in content.strip().split('\n'):
+                line = line.strip()
+                if '=' in line:
+                    parts = line.split('=', 1)
+                    if len(parts) == 2:
+                        cipher, plain = parts
+                        mapping[cipher] = plain
+
+            self.snapshot_current_mapping()  # Save state before import
+            self.set_mapping_rows(mapping)
+            self.subst_status_label.configure(text=lang.get("subst_status_ok_import_txt", "Mapping imported from TXT."), text_color="green")
+        except Exception as e:
+            logger.error(f"Import TXT mapping failed: {e}")
+            self.subst_status_label.configure(text=lang.get('subst_status_error_import_txt', "Invalid TXT file."), text_color="red")
 
 
     # --- show/hide frames ---
