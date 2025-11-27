@@ -962,7 +962,9 @@ def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = N
 # Substitution Cipher Helper Functions
 # -------------------------
 
-# Ukrainian letter frequencies (approximate, based on typical text analysis)
+# Ukrainian letter frequencies (approximate values based on corpus analysis).
+# Source: Standard Ukrainian language frequency analysis; values normalized to sum to ~1.0.
+# Note: These are averages across typical literary/newspaper texts.
 UKRAINIAN_LETTER_FREQ = [
     ('О', 0.094), ('А', 0.073), ('Н', 0.066), ('І', 0.062), ('Е', 0.055),
     ('И', 0.054), ('В', 0.052), ('Р', 0.047), ('Т', 0.045), ('С', 0.040),
@@ -973,7 +975,8 @@ UKRAINIAN_LETTER_FREQ = [
     ('Ф', 0.003), ('Ї', 0.002), ('Ґ', 0.001),
 ]
 
-# English letter frequencies (approximate)
+# English letter frequencies (approximate values based on standard English corpus).
+# Source: Commonly cited English letter frequency (e.g., Wikipedia, Lewand 2000).
 ENGLISH_LETTER_FREQ = [
     ('E', 0.127), ('T', 0.091), ('A', 0.082), ('O', 0.075), ('I', 0.070),
     ('N', 0.067), ('S', 0.063), ('H', 0.061), ('R', 0.060), ('D', 0.043),
@@ -988,9 +991,8 @@ def compute_char_freq(text: str) -> List[Tuple[str, int, float]]:
     """
     Compute frequency of each character in text.
     Returns list of (char, count, percentage) sorted by count descending.
-    Only considers visible printable characters.
+    Only considers visible printable characters (excludes whitespace).
     """
-    # Filter to printable characters
     filtered = [c for c in text if c.isprintable() and not c.isspace()]
     if not filtered:
         return []
@@ -1007,9 +1009,10 @@ def compute_bigram_freq(text: str, top_n: int = 20) -> List[Tuple[str, int, floa
     """
     Compute frequency of bigrams (2-character pairs) in text.
     Returns list of (bigram, count, percentage) sorted by count descending.
-    Only considers alphanumeric characters in sequence.
+    Only considers alphanumeric characters (letters and digits) in sequence.
+    Note: Uses alphanumeric filter (stricter than char_freq) to focus on
+    meaningful letter pairs for cryptanalysis.
     """
-    # Filter to alphanumeric only
     filtered = [c for c in text if c.isalnum()]
     if len(filtered) < 2:
         return []
@@ -2720,8 +2723,7 @@ class StegoApp(ctk.CTk):
         char_freq = compute_char_freq(text)
         char_text = "Sym  Count   %\n" + "-" * 20 + "\n"
         for char, count, pct in char_freq[:30]:  # Top 30
-            display_char = repr(char) if not char.isprintable() else char
-            char_text += f"{display_char:4} {count:5}  {pct:5.1f}%\n"
+            char_text += f"{char:4} {count:5}  {pct:5.1f}%\n"
 
         # Compute bigram frequencies
         bigram_freq = compute_bigram_freq(text, top_n=15)
