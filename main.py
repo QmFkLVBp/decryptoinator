@@ -1,5 +1,5 @@
 from __future__ import annotations
-import base64
+import base64, binascii
 import hashlib
 import io
 import os
@@ -14,6 +14,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageTk
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
 # Optional AES dependency (PyCryptodome)
 try:
@@ -24,7 +26,7 @@ try:
 except Exception:
     CRYPTO_AVAILABLE = False
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.6.4"
 # Fixed raw URL path (removed invalid refs/heads)
 APP_LOGO_URL = "https://raw.githubusercontent.com/QmFkLVBp/decryptoinator/main/logo.png"
 
@@ -499,35 +501,118 @@ def sdes_decrypt_bytes(data: bytes, key10: int) -> bytes:
 
 
 # -------------------------
-# AES helpers (uses PyCryptodome if available)
-# -------------------------
-def aes_derive_key_from_password(password: str) -> bytes:
-    h = hashlib.sha256(password.encode('utf-8')).digest()
-    return h[:16]
+
+# ---- AES: improved key handling, encrypt/decrypt with key-length detection ----
+import binascii
+def aes_prepare_key(key_input: str, prefer_bits: int | None = None) -> tuple[bytes, int, str]:
+    s = (key_input or "").strip()
+    if not s:
+        return (b"\x00" * 16, 128, "empty->zero-key")
+    valid_sizes = (16, 24, 32)
+    hex_ok = all(c in string.hexdigits for c in s) and (len(s) % 2 == 0)
+    if hex_ok:
+        try:
+            kbytes = binascii.unhexlify(s)
+            if len(kbytes) in valid_sizes:
+                return (kbytes, len(kbytes) * 8, f"hex ({len(kbytes)*8} bits)")
+        except Exception:
+            pass
+    raw = s.encode("utf-8", errors="ignore")
+    if prefer_bits in (128, 192, 256):
+        needed = prefer_bits // 8
+        if len(raw) >= needed:
+            return (raw[:needed], prefer_bits, "raw-trimmed")
+        derived = hashlib.sha256(raw).digest()[:needed]
+        return (derived, prefer_bits, "derived(SHA256)->trimmed")
+    if len(raw) in valid_sizes:
+        return (raw, len(raw) * 8, "raw-exact")
+    if len(raw) > 32:
+        kb = hashlib.sha256(raw).digest()[:32]
+        return (kb, 256, "derived(SHA256)->256")
+    elif len(raw) > 24:
+        kb = hashlib.sha256(raw).digest()[:32][:24]
+        return (kb, 192, "derived(SHA256)->192")
+    elif len(raw) >= 16:
+        if len(raw) >= 24:
+            kb = hashlib.sha256(raw).digest()[:24]
+            return (kb, 192, "derived(SHA256)->192")
+        kb = hashlib.sha256(raw).digest()[:16]
+        return (kb, 128, "derived(SHA256)->128")
+    else:
+        kb = hashlib.sha256(raw).digest()[:16]
+        return (kb, 128, "derived(SHA256)->128 (input too short)")
 
 
-def aes_encrypt_text(plaintext: str, password: str) -> str:
+def aes_prepare_key(key_input: str, prefer_bits: int | None = None) -> tuple[bytes, int, str]:
+    """
+    Prepare AES key from user input. Returns (key_bytes, key_bits, source_description).
+    - Accepts hex (even-length hex string) of sizes 16/24/32 bytes.
+    - Accepts raw UTF-8 string; if exact size, use as-is; otherwise derive via SHA-256 and trim/extend.
+    - prefer_bits can be 128/192/256 to force key size.
+    """
+    import binascii
+    s = (key_input or "").strip()
+    if not s:
+        return (b"\x00" * 16, 128, "empty->zero-key")
+    valid_sizes = (16, 24, 32)
+    # Try hex
+    hex_ok = all(c in string.hexdigits for c in s) and (len(s) % 2 == 0)
+    if hex_ok:
+        try:
+            kbytes = binascii.unhexlify(s)
+            if len(kbytes) in valid_sizes:
+                return (kbytes, len(kbytes) * 8, f"hex ({len(kbytes)*8} bits)")
+        except Exception:
+            pass
+    raw = s.encode('utf-8', errors='ignore')
+    if prefer_bits in (128, 192, 256):
+        needed = prefer_bits // 8
+        if len(raw) >= needed:
+            return (raw[:needed], prefer_bits, 'raw-trimmed')
+        derived = hashlib.sha256(raw).digest()[:needed]
+        return (derived, prefer_bits, 'derived(SHA256)->trimmed')
+    if len(raw) in valid_sizes:
+        return (raw, len(raw) * 8, 'raw-exact')
+    if len(raw) > 32:
+        kb = hashlib.sha256(raw).digest()[:32]
+        return (kb, 256, 'derived(SHA256)->256')
+    elif len(raw) > 24:
+        kb = hashlib.sha256(raw).digest()[:32][:24]
+        return (kb, 192, 'derived(SHA256)->192')
+    elif len(raw) >= 16:
+        if len(raw) >= 24:
+            kb = hashlib.sha256(raw).digest()[:24]
+            return (kb, 192, 'derived(SHA256)->192')
+        kb = hashlib.sha256(raw).digest()[:16]
+        return (kb, 128, 'derived(SHA256)->128')
+    else:
+        kb = hashlib.sha256(raw).digest()[:16]
+        return (kb, 128, 'derived(SHA256)->128 (input too short)')
+
+
+def aes_encrypt_text(plaintext: str, key_input: str, prefer_bits: int | None = None) -> tuple[str, int, str]:
     if not CRYPTO_AVAILABLE:
         raise RuntimeError("Crypto not available")
-    key = aes_derive_key_from_password(password)
-    cipher = AES.new(key, AES.MODE_CBC)
+    key_bytes, key_bits, src = aes_prepare_key(key_input, prefer_bits)
+    iv = os.urandom(16)
+    cipher = AES.new(key_bytes, AES.MODE_CBC, iv=iv)
     ct = cipher.encrypt(pad(plaintext.encode('utf-8'), AES.block_size))
-    payload = cipher.iv + ct
-    return base64.b64encode(payload).decode('utf-8')
+    payload = iv + ct
+    return base64.b64encode(payload).decode('utf-8'), key_bits, src
 
 
-def aes_decrypt_text(b64cipher: str, password: str) -> str:
+def aes_decrypt_text(b64cipher: str, key_input: str, prefer_bits: int | None = None) -> tuple[str, int, str]:
     if not CRYPTO_AVAILABLE:
         raise RuntimeError("Crypto not available")
-    data = base64.b64decode(b64cipher)
-    if len(data) < 16:
-        raise ValueError("Ciphertext too short")
-    iv = data[:16]
-    ct = data[16:]
-    key = aes_derive_key_from_password(password)
-    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    raw = base64.b64decode(b64cipher)
+    if len(raw) < 16:
+        raise ValueError("Ciphertext too short (no IV)")
+    iv = raw[:16]
+    ct = raw[16:]
+    key_bytes, key_bits, src = aes_prepare_key(key_input, prefer_bits)
+    cipher = AES.new(key_bytes, AES.MODE_CBC, iv=iv)
     pt = unpad(cipher.decrypt(ct), AES.block_size)
-    return pt.decode('utf-8', errors='replace')
+    return pt.decode('utf-8', errors='replace'), key_bits, src
 
 
 # -------------------------
@@ -577,10 +662,241 @@ def aes_bruteforce_pin(cipher_b64: str, known_fragment: bytes = None, max_pin_le
                 continue
     return matches
 
+import logging
+logger = logging.getLogger("decrypto")
+if not logger.handlers:
+    # простий файловий логер, якщо ще не створено
+    fh = logging.FileHandler("decrypto.log", encoding="utf-8")
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    logger.addHandler(fh)
+    logger.setLevel(logging.DEBUG)
 
-# -------------------------
-# GUI Application
-# -------------------------
+def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int, iv_len: int, hasher=hashlib.md5) -> Tuple[bytes, bytes]:
+    """
+    Реалізація OpenSSL EVP_BytesToKey (MD5 variant).
+    Повертає (key, iv). Використовується формою 'Salted__' + 8-byte salt + ciphertext.
+    """
+    derived = b""
+    prev = b""
+    # Loop like OpenSSL EVP_BytesToKey with MD5
+    while len(derived) < (key_len + iv_len):
+        prev = hasher(prev + password + salt).digest()
+        derived += prev
+    key = derived[:key_len]
+    iv = derived[key_len:key_len + iv_len]
+    return key, iv
+
+def openssl_aes_encrypt(plaintext: str, password: str, prefer_bits: Optional[int] = None) -> str:
+    """
+    Шифрує у форматі сумісному з OpenSSL/aesencryption.net:
+    payload = b"Salted__" + salt(8) + ciphertext
+    Повертає base64(payload).
+    prefer_bits: 128/192/256 або None -> по замовчуванню використовуємо 256 для derivation.
+    """
+    if not CRYPTO_AVAILABLE:
+        raise RuntimeError("Crypto not available")
+    if prefer_bits not in (None, 128, 192, 256):
+        raise ValueError("prefer_bits must be 128/192/256 or None")
+
+    salt = os.urandom(8)
+    key_len = (prefer_bits // 8) if prefer_bits else 32
+    iv_len = AES.block_size  # 16
+    key, iv = evp_bytes_to_key(password.encode("utf-8"), salt, key_len, iv_len, hashlib.md5)
+
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    padded = pad(plaintext.encode("utf-8"), AES.block_size, style='pkcs7')
+    ct = cipher.encrypt(padded)
+    payload = b"Salted__" + salt + ct
+    return base64.b64encode(payload).decode('utf-8')
+
+def openssl_aes_decrypt(b64payload: str, password: str, prefer_bits: Optional[int] = None) -> str:
+    """
+    Дешифрує OpenSSL 'Salted__' payload.
+    prefer_bits може підказати бажаний key-size (128/192/256) — якщо None, будемо використовувати 256 для derivation.
+    Повертає рядок utf-8 (errors='replace').
+    """
+    if not CRYPTO_AVAILABLE:
+        raise RuntimeError("Crypto not available")
+    try:
+        data = base64.b64decode(b64payload)
+    except Exception as e:
+        raise ValueError(f"Invalid base64 payload: {e}")
+
+    if not data.startswith(b"Salted__") or len(data) < 16:
+        raise ValueError("Input is not OpenSSL salted format (missing 'Salted__' + salt).")
+
+    salt = data[8:16]
+    ct = data[16:]
+    key_len = (prefer_bits // 8) if prefer_bits else 32
+    iv_len = AES.block_size
+    key, iv = evp_bytes_to_key(password.encode("utf-8"), salt, key_len, iv_len, hashlib.md5)
+
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    try:
+        pt = unpad(cipher.decrypt(ct), AES.block_size, style='pkcs7')
+    except ValueError as e:
+        # padding error or wrong key
+        raise ValueError(f"Decryption failed (padding/incorrect key): {e}")
+    return pt.decode('utf-8', errors='replace')
+
+def aes_derive_key_from_password(password: str, bits: int = 128) -> bytes:
+    """
+    Простий derive для brute-force PIN: SHA256(password)[:bits//8].
+    (Використовується у aes_bruteforce_pin, якщо ваш bruteforce очікує derive).
+    """
+    h = hashlib.sha256(password.encode('utf-8')).digest()
+    return h[: (bits // 8)]
+
+# ---- (A) Гнучкий AES-декодер: вставити після імпортів (перед класом StegoApp) ----
+def openssl_or_iv_decrypt(b64payload: str, password: str, prefer_bits: Optional[int] = None) -> tuple[str, str]:
+    """
+    Прагматичний декодер, що пробує кілька форматів:
+      - OpenSSL salted (b"Salted__" + 8-byte salt + ciphertext) -> EVP_BytesToKey (MD5)
+      - IV-prefixed (first 16 bytes -> IV, rest -> ciphertext) -> tries prefer_bits or 128/192/256 using aes_prepare_key
+    Повертає (plaintext_str, info_str) або піднімає ValueError з діагностикою.
+    Залежить від CRYPTO_AVAILABLE, AES, pad/unpad, aes_prepare_key на модульному рівні.
+    """
+    if not CRYPTO_AVAILABLE:
+        raise RuntimeError("Crypto not available")
+
+    # Базове декодування Base64
+    try:
+        data = base64.b64decode(b64payload)
+    except Exception as e:
+        raise ValueError(f"Invalid base64 payload: {e}")
+
+    # --- 1) OpenSSL "Salted__" формат ---
+    try:
+        if data.startswith(b"Salted__") and len(data) > 16:
+            salt = data[8:16]
+            ct = data[16:]
+            # key_len decision
+            key_len = (prefer_bits // 8) if prefer_bits else 32
+            iv_len = AES.block_size
+            key, iv = evp_bytes_to_key(password.encode("utf-8"), salt, key_len, iv_len, hashlib.md5)
+            cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+            pt = unpad(cipher.decrypt(ct), AES.block_size)
+            return pt.decode('utf-8', errors='replace'), f"OpenSSL-salted (MD5 EVP_BytesToKey), key_bits={key_len*8}"
+    except Exception as e:
+        # Не відразу фейлим — продовжимо спроби, але запишемо повідомлення
+        openssl_err = str(e)
+    else:
+        openssl_err = None
+
+    # --- 2) IV-prefixed format: first 16 bytes are IV, rest ciphertext ---
+    if len(data) >= 16:
+        iv = data[:16]
+        ct = data[16:]
+        # If prefer_bits specified, try that first
+        bits_attempts = []
+        if prefer_bits in (128, 192, 256):
+            bits_attempts.append(prefer_bits)
+        # append common sizes
+        for b in (128, 192, 256):
+            if b not in bits_attempts:
+                bits_attempts.append(b)
+
+        last_exception = None
+        for bits in bits_attempts:
+            try:
+                # Use aes_prepare_key to support hex/raw passwords and derivation rules
+                key_bytes, key_bits, src = aes_prepare_key(password, prefer_bits=bits)
+                cipher = AES.new(key_bytes, AES.MODE_CBC, iv=iv)
+                pt = unpad(cipher.decrypt(ct), AES.block_size)
+                info = f"IV-prefixed payload, used aes_prepare_key -> key_bits={key_bits} ({src})"
+                return pt.decode('utf-8', errors='replace'), info
+            except Exception as e:
+                last_exception = e
+                continue
+        # якщо не спрацювало, зберігаємо помилку
+        iv_err = str(last_exception) if last_exception else "unknown error in IV-prefixed attempts"
+    else:
+        iv_err = "payload too short (<16 bytes) to be IV-prefixed"
+
+    # Якщо дійшли сюди — нічого не спрацювало. Повертаємо diagnostic message
+    msg_parts = []
+    if openssl_err:
+        msg_parts.append(f"OpenSSL attempt failed: {openssl_err}")
+    msg_parts.append(f"IV-prefixed attempt failed: {iv_err}")
+    raise ValueError("Input is not OpenSSL salted format and IV-prefixed attempts failed. Details: " + " | ".join(msg_parts))
+
+def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = None,
+                            max_pin_length: int = 4, prefer_bits: Optional[int] = None,
+                            try_keysizes_if_salted: Optional[List[int]] = None):
+    """
+    Brute-force candidate passwords (numeric PINs by length) against a Base64 AES payload.
+    - If payload is OpenSSL-salted (starts with b"Salted__"), uses evp_bytes_to_key(MD5) with salt for key/iv derivation.
+      try_keysizes_if_salted: list of key sizes to try (e.g. [192,256,128]) or None to use [256,192,128].
+    - Otherwise, if payload is IV-prefixed (first 16 bytes = IV), uses aes_prepare_key(candidate, prefer_bits).
+    - Returns list of matches: [(candidate_password_str, plaintext_bytes), ...]
+    """
+    matches = []
+    if not CRYPTO_AVAILABLE:
+        raise RuntimeError("Crypto not available")
+    try:
+        data = base64.b64decode(cipher_b64.strip())
+    except Exception as e:
+        raise ValueError(f"Base64 decode error: {e}")
+
+    if len(data) < 1:
+        return matches
+
+    # Detect salted OpenSSL format
+    is_salted = data.startswith(b"Salted__") and len(data) >= 16
+    if is_salted:
+        salt = data[8:16]
+        ct = data[16:]
+        if try_keysizes_if_salted is None:
+            # default try order: try prefer_bits first (if provided), else 256->192->128
+            if prefer_bits in (128, 192, 256):
+                order = [prefer_bits] + [b for b in (256, 192, 128) if b != prefer_bits]
+            else:
+                order = [256, 192, 128]
+        else:
+            order = try_keysizes_if_salted
+
+        # Iterate over PIN lengths/numeric candidates (1..max_pin_length)
+        for length in range(1, max_pin_length + 1):
+            upper = 10 ** length
+            for num in range(0, upper):
+                candidate = str(num).zfill(length)
+                # for each candidate, try key sizes in order
+                for bits in order:
+                    try:
+                        key_len = bits // 8
+                        key, iv = evp_bytes_to_key(candidate.encode('utf-8'), salt, key_len, AES.block_size, hashlib.md5)
+                        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+                        pt = unpad(cipher.decrypt(ct), AES.block_size)
+                        # success
+                        matches.append((candidate, pt))
+                        # Optionally return immediately on first find; here collect multiple
+                        # return matches
+                    except Exception:
+                        continue
+        return matches
+
+    # Not salted => maybe IV-prefixed or raw ciphertext
+    if len(data) >= 16:
+        iv = data[:16]
+        ct = data[16:]
+        # candidate loop
+        for length in range(1, max_pin_length + 1):
+            upper = 10 ** length
+            for num in range(0, upper):
+                candidate = str(num).zfill(length)
+                try:
+                    # use aes_prepare_key which supports hex/raw/derived
+                    key_bytes, key_bits, src = aes_prepare_key(candidate, prefer_bits=prefer_bits)
+                    cipher = AES.new(key_bytes, AES.MODE_CBC, iv=iv)
+                    pt = unpad(cipher.decrypt(ct), AES.block_size)
+                    matches.append((candidate, pt))
+                except Exception:
+                    continue
+        return matches
+
+    # otherwise cannot attempt
+    return matches
+
 class StegoApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -1067,6 +1383,201 @@ class StegoApp(ctk.CTk):
             self.ela_scale_entry.delete(0, "end")
             self.ela_scale_entry.insert(0, "15")
 
+    
+    def setup_aes_frame_widgets(self):
+        tab = self.aes_frame
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(7, weight=1)
+
+        lang = LANG_STRINGS[self.current_lang.get()]
+
+        self.aes_title = self._create_widget(ctk.CTkLabel, tab, font=ctk.CTkFont(size=24, weight="bold"))
+        self.aes_title.grid(row=0, column=0, pady=20, padx=20, sticky="w")
+
+        # режим (Encrypt / Decrypt)
+        self.aes_mode = ctk.StringVar(value=lang["mode_encrypt"])
+        mode_vals = [lang["mode_encrypt"], lang["mode_decrypt"]]
+        self.aes_mode_selector = self._create_widget(ctk.CTkSegmentedButton, tab,
+                                                     values=mode_vals, variable=self.aes_mode)
+        self.aes_mode_selector.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        # Key size selector (Auto / 128 / 192 / 256)
+        keysize_frame = self._create_widget(ctk.CTkFrame, tab)
+        keysize_frame.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
+        keysize_frame.grid_columnconfigure(1, weight=1)
+        self.aes_keysize_var = ctk.StringVar(value="Auto")
+        self.aes_keysize_menu = self._create_widget(ctk.CTkOptionMenu, keysize_frame, values=["Auto","128","192","256"], variable=self.aes_keysize_var)
+        self.aes_keysize_menu.grid(row=0, column=0, padx=(0,8), pady=6, sticky="w")
+        self.aes_key_label = self._create_widget(ctk.CTkLabel, keysize_frame, text=lang["key_label"])
+        self.aes_key_label.grid(row=0, column=1, padx=(8, 8), pady=6, sticky="w")
+        self.aes_key_entry = self._create_widget(ctk.CTkEntry, keysize_frame)
+        self.aes_key_entry.grid(row=0, column=2, padx=(0, 8), pady=6, sticky="ew")
+
+
+        # вхідні дані
+        self.aes_input_label = self._create_widget(ctk.CTkLabel, tab, font=ctk.CTkFont(size=14))
+        self.aes_input_label.grid(row=3, column=0, padx=20, sticky="w")
+        self.aes_input_textbox = self._create_widget(ctk.CTkTextbox, tab, height=160)
+        self.aes_input_textbox.grid(row=4, column=0, padx=20, pady=(4, 10), sticky="nsew")
+
+        # кнопка виконати + статус
+        controls = self._create_widget(ctk.CTkFrame, tab)
+        controls.grid(row=5, column=0, padx=20, pady=8, sticky="ew")
+        controls.grid_columnconfigure((0,1,2), weight=1)
+
+        self.aes_run_btn = self._create_widget(ctk.CTkButton, controls, command=self.perform_aes_operation,
+                                               font=ctk.CTkFont(size=14, weight="bold"))
+        self.aes_run_btn.grid(row=0, column=0, padx=5, pady=4, sticky="w")
+
+        # Brute-force controls (pin bruteforce)
+        bf_frame = self._create_widget(ctk.CTkFrame, controls)
+        bf_frame.grid(row=0, column=1, padx=5, sticky="e")
+        bf_frame.grid_columnconfigure(1, weight=1)
+
+        bf_label = self._create_widget(ctk.CTkLabel, bf_frame, text=lang["aes_bruteforce_label"])
+        bf_label.grid(row=0, column=0, padx=(0,6), sticky="w")
+        self.aes_pin_maxlen_entry = self._create_widget(ctk.CTkEntry, bf_frame, width=60)
+        self.aes_pin_maxlen_entry.grid(row=0, column=1, sticky="w")
+        self.aes_pin_maxlen_entry.insert(0, "4")
+        self.aes_brute_btn = self._create_widget(ctk.CTkButton, controls, text=lang["aes_bruteforce_run"],
+                                                 command=self.perform_aes_bruteforce)
+        self.aes_brute_btn.grid(row=0, column=2, padx=5, pady=4, sticky="e")
+
+        # Вихід (результат)
+        self.aes_output_label = self._create_widget(ctk.CTkLabel, tab, font=ctk.CTkFont(size=14))
+        self.aes_output_label.grid(row=6, column=0, padx=20, pady=(8, 0), sticky="w")
+        self.aes_output_textbox = self._create_widget(ctk.CTkTextbox, tab, height=140)
+        self.aes_output_textbox.grid(row=7, column=0, padx=20, pady=(4, 10), sticky="nsew")
+
+        # статус
+        self.aes_status_label = self._create_widget(ctk.CTkLabel, tab, text="", text_color="yellow")
+        self.aes_status_label.is_themeable = False
+        self.aes_status_label.grid(row=8, column=0, padx=20, pady=(0,10), sticky="w")
+
+        # Ініціалізуємо локальні тексти під мову
+        self.update_aes_texts()
+
+    def perform_aes_operation(self):
+        lang = LANG_STRINGS[self.current_lang.get()]
+        if not CRYPTO_AVAILABLE:
+            self.aes_status_label.configure(text=lang["crypto_error_crypto_missing"], text_color="red")
+            return
+
+        txt = self.aes_input_textbox.get("1.0", "end").strip()
+        key_input = self.aes_key_entry.get().strip()
+        ks = self.aes_keysize_var.get() if hasattr(self, "aes_keysize_var") else "Auto"
+        prefer_bits = None
+        if ks in ("128", "192", "256"):
+            try:
+                prefer_bits = int(ks)
+            except Exception:
+                prefer_bits = None
+
+        if not txt:
+            self.aes_status_label.configure(text="Input empty", text_color="red")
+            return
+
+        if self.aes_mode.get() == LANG_STRINGS[self.current_lang.get()]["mode_encrypt"]:
+            # Зашифрувати у вибраному форматі.
+            # Якщо хочете OpenSSL-сумісний результат — використовуємо openssl_aes_encrypt.
+            try:
+                out_b64 = openssl_aes_encrypt(txt, key_input, prefer_bits=prefer_bits)
+                self._safe_set_textbox_text(self.aes_output_textbox, out_b64)
+                self.aes_status_label.configure(text=f"Encrypted — key {prefer_bits or 'Auto'} (OpenSSL format)",
+                                                text_color="green")
+            except Exception as e:
+                logger.exception("encrypt failed")
+                self.aes_status_label.configure(text=f"Error: {e}", text_color="red")
+        else:
+            # Дешифрування: пробуємо OpenSSL-salted або IV-prefixed (gнучкий декодер)
+            try:
+                plaintext, info = openssl_or_iv_decrypt(txt, key_input, prefer_bits=prefer_bits)
+                self._safe_set_textbox_text(self.aes_output_textbox, plaintext)
+                self.aes_status_label.configure(text=f"Decrypted ({info})", text_color="green")
+            except Exception as e:
+                logger.debug("decrypt attempts failed", exc_info=True)
+                # Виводимо детальну помилку в статус (коротко) і в логи повний trace
+                msg = str(e)
+                self.aes_status_label.configure(text=f"Error: {msg}", text_color="red")
+
+    def perform_aes_bruteforce(self):
+        """
+        GUI handler: brute-force password candidates (numeric PINs by length) for AES payload.
+        Uses aes_bruteforce_password (module-level) which handles OpenSSL-salted and IV-prefixed payloads.
+        """
+        lang = LANG_STRINGS[self.current_lang.get()]
+        if not CRYPTO_AVAILABLE:
+            self.aes_status_label.configure(text=lang["crypto_error_crypto_missing"], text_color="red")
+            return
+
+        cipher_b64 = self.aes_input_textbox.get("1.0", "end").strip()
+        if not cipher_b64:
+            self.aes_status_label.configure(text="Input empty", text_color="red")
+            return
+
+        # prefer_bits from UI selector if present
+        ks = self.aes_keysize_var.get() if hasattr(self, "aes_keysize_var") else "Auto"
+        prefer_bits = None
+        if ks in ("128", "192", "256"):
+            try:
+                prefer_bits = int(ks)
+            except Exception:
+                prefer_bits = None
+
+        # numeric max length field still used to limit candidate lengths
+        try:
+            maxlen = int(self.aes_pin_maxlen_entry.get().strip() or "4")
+            if maxlen < 1:
+                maxlen = 1
+            if maxlen > 6:
+                # safety cap to avoid too long brute (adjust as desired)
+                maxlen = 6
+        except Exception:
+            maxlen = 4
+
+        self.aes_status_label.configure(text=lang["brute_status"], text_color="yellow")
+        self.update_idletasks()
+
+        def worker(cipher_b64=cipher_b64, maxlen=maxlen, prefer_bits=prefer_bits):
+            try:
+                matches = aes_bruteforce_password(cipher_b64, known_fragment=None,
+                                                  max_pin_length=maxlen, prefer_bits=prefer_bits)
+                # prepare output text
+                if not matches:
+                    self.after(0,
+                               lambda: self.aes_status_label.configure(text=lang["brute_no_results"], text_color="red"))
+                    return
+
+                out_lines = []
+                for candidate, pt in matches[:20]:
+                    try:
+                        text_preview = pt.decode("utf-8", errors="replace")
+                    except Exception:
+                        text_preview = repr(pt)
+                    out_lines.append(f"Password: {candidate} => plaintext preview:\n{text_preview}\n{'-' * 40}")
+                out_text = "\n\n".join(out_lines)
+
+                # update GUI: output textbox and status
+                def gui_update(o=out_text):
+                    try:
+                        self._safe_set_textbox_text(self.aes_output_textbox, o)
+                    except Exception:
+                        self.aes_output_textbox.delete("1.0", tk.END)
+                        self.aes_output_textbox.insert("1.0", o)
+                    self.aes_status_label.configure(text=lang["brute_done"], text_color="green")
+
+                self.after(0, gui_update)
+            except Exception as e:
+                err = str(e)
+                try:
+                    logger.exception("aes brute worker failed")
+                except Exception:
+                    pass
+                self.after(0, lambda msg=err: self.aes_status_label.configure(text=f"Error: {msg}", text_color="red"))
+
+        threading.Thread(target=worker, daemon=True).start()
+        
+
     def setup_settings_frame_widgets(self):
         self.settings_frame.grid_columnconfigure(0, weight=1)
         self.settings_title = self._create_widget(ctk.CTkLabel, self.settings_frame,
@@ -1471,48 +1982,188 @@ class StegoApp(ctk.CTk):
             self.about_links_label.configure(text=lang["about_links_label"])
 
     # ---------- AES and S-DES UI setup ----------
-    def setup_aes_frame_widgets(self):
-        lang = LANG_STRINGS[self.current_lang.get()]
-        self.aes_frame.grid_columnconfigure(0, weight=1)
-        self.aes_title = self._create_widget(ctk.CTkLabel, self.aes_frame, font=ctk.CTkFont(size=20, weight="bold"))
-        self.aes_title.grid(row=0, column=0, pady=10, padx=20)
-        self.aes_mode = ctk.StringVar(value=lang["mode_encrypt"])
-        self.aes_mode_selector = self._create_widget(ctk.CTkSegmentedButton, self.aes_frame,
-                                                     values=[lang["mode_encrypt"], lang["mode_decrypt"]],
-                                                     variable=self.aes_mode)
-        self.aes_mode_selector.grid(row=1, column=0, padx=20, pady=5)
+    # ---- Додайте на рівні модуля (після імпортів) ----
+    def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int, iv_len: int, hasher=hashlib.md5) -> Tuple[
+        bytes, bytes]:
+        """
+        Реалізація OpenSSL EVP_BytesToKey (MD5 варіант) — повертає (key, iv).
+        Використовується aesencryption.net (формат OpenSSL 'Salted__' + 8-byte salt).
+        """
+        derived = b""
+        prev = b""
+        while len(derived) < (key_len + iv_len):
+            prev = hasher(prev + password + salt).digest()
+            derived += prev
+        key = derived[:key_len]
+        iv = derived[key_len:key_len + iv_len]
+        return key, iv
 
-        self.aes_input_label = self._create_widget(ctk.CTkLabel, self.aes_frame, text=lang["input_label"])
-        self.aes_input_label.grid(row=2, column=0, sticky="w", padx=20)
-        self.aes_input_textbox = self._create_widget(ctk.CTkTextbox, self.aes_frame, height=120)
-        self.aes_input_textbox.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
+    def openssl_aes_encrypt(plaintext: str, password: str, prefer_bits: Optional[int] = None) -> str:
+        """
+        Шифрує у форматі сумісному з aesencryption.net / OpenSSL enc:
+        payload = b"Salted__" + salt(8) + ciphertext
+        Повертає base64(payload).
+        prefer_bits: 128/192/256 або None (за замовчуванням 256 якщо password достатньо довгий буде використано EVP_BytesToKey з key_len відповідно).
+        """
+        if not CRYPTO_AVAILABLE:
+            raise RuntimeError("Crypto not available")
+        if prefer_bits not in (128, 192, 256, None):
+            raise ValueError("prefer_bits must be 128/192/256 or None")
 
-        key_frame = self._create_widget(ctk.CTkFrame, self.aes_frame)
-        key_frame.grid(row=4, column=0, padx=20, pady=5, sticky="ew")
-        self.aes_key_label = self._create_widget(ctk.CTkLabel, key_frame, text=lang["key_label"])
-        self.aes_key_label.grid(row=0, column=0, padx=(0, 10))
-        self.aes_key_entry = self._create_widget(ctk.CTkEntry, key_frame, width=240)
-        self.aes_key_entry.grid(row=0, column=1, padx=(0, 10))
-        self.aes_pin_maxlen_label = self._create_widget(ctk.CTkLabel, key_frame, text=lang["aes_bruteforce_label"])
-        self.aes_pin_maxlen_label.grid(row=1, column=0, padx=(0, 10), pady=(6, 0))
-        self.aes_pin_maxlen_entry = self._create_widget(ctk.CTkEntry, key_frame, width=80)
-        self.aes_pin_maxlen_entry.grid(row=1, column=1, padx=(0, 10), pady=(6, 0), sticky="w")
-        self.aes_pin_maxlen_entry.insert(0, "4")
+        salt = os.urandom(8)
+        # Визначаємо довжину ключа в байтах
+        if prefer_bits is None:
+            # якщо не вказано, використаємо 256-бітну довжину як дефолт для derivation
+            key_len = 32
+        else:
+            key_len = prefer_bits // 8
+        iv_len = AES.block_size  # 16
+        key, iv = evp_bytes_to_key(password.encode("utf-8"), salt, key_len, iv_len, hashlib.md5)
 
-        controls = self._create_widget(ctk.CTkFrame, self.aes_frame)
-        controls.grid(row=5, column=0, padx=20, pady=10, sticky="ew")
-        self.aes_run_btn = self._create_widget(ctk.CTkButton, controls, text=lang["run"], command=self.perform_aes_operation)
-        self.aes_run_btn.grid(row=0, column=0, padx=5)
-        self.aes_brute_btn = self._create_widget(ctk.CTkButton, controls, text=lang["aes_bruteforce_run"], command=self.perform_aes_bruteforce)
-        self.aes_brute_btn.grid(row=0, column=1, padx=5)
+        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+        padded = pad(plaintext.encode("utf-8"), AES.block_size, style='pkcs7')
+        ct = cipher.encrypt(padded)
+        payload = b"Salted__" + salt + ct
+        return base64.b64encode(payload).decode('utf-8')
 
-        self.aes_output_label = self._create_widget(ctk.CTkLabel, self.aes_frame, text=lang["output_label"])
-        self.aes_output_label.grid(row=6, column=0, sticky="w", padx=20)
-        self.aes_output_textbox = self._create_widget(ctk.CTkTextbox, self.aes_frame, height=150)
-        self.aes_output_textbox.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="ew")
+    def openssl_aes_decrypt(b64payload: str, password: str, prefer_bits: Optional[int] = None) -> str:
+        """
+        Дешифрує payload у форматі OpenSSL ('Salted__' + salt + ciphertext).
+        prefer_bits може підказати бажаний key-size (128/192/256) — якщо None, використовує ключ-деривацію з key_len=32 (256) для сумісності.
+        Повертає розшифрований utf-8 рядок (errors='replace').
+        """
+        if not CRYPTO_AVAILABLE:
+            raise RuntimeError("Crypto not available")
+        try:
+            data = base64.b64decode(b64payload)
+        except Exception as e:
+            raise ValueError(f"Invalid base64 payload: {e}")
 
-        self.aes_status_label = self._create_widget(ctk.CTkLabel, self.aes_frame, text="", text_color="yellow"); self.aes_status_label.is_themeable = False
-        self.aes_status_label.grid(row=8, column=0, padx=20, pady=(0, 10), sticky="w")
+        if not data.startswith(b"Salted__") or len(data) < 16:
+            raise ValueError("Input is not OpenSSL salted format (missing 'Salted__' + salt).")
+
+        salt = data[8:16]
+        ct = data[16:]
+        if prefer_bits is None:
+            key_len = 32
+        else:
+            key_len = prefer_bits // 8
+        iv_len = AES.block_size
+        key, iv = evp_bytes_to_key(password.encode("utf-8"), salt, key_len, iv_len, hashlib.md5)
+
+        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+        try:
+            pt = unpad(cipher.decrypt(ct), AES.block_size, style='pkcs7')
+        except ValueError as e:
+            # padding error або некоректний ключ
+            raise ValueError(f"Decryption failed (padding/incorrect key): {e}")
+        return pt.decode('utf-8', errors='replace')
+
+    def aes_derive_key_from_password(password: str, bits: int = 128) -> bytes:
+        """
+        Простий derive для brute-force PIN: SHA256(password)[:bits//8].
+        (Використовується в aes_bruteforce_pin для швидкого brute-force)
+        """
+        h = hashlib.sha256(password.encode('utf-8')).digest()
+        return h[: (bits // 8)]
+
+    # ---- Кінець доданих модульних функцій ----
+
+    def _aes_process(self, mode: str):
+        if not CRYPTO_AVAILABLE:
+            messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                 lang.get("dialog_crypto_error", "PyCryptodome library is not installed."))
+            return
+
+        lang = self.master.lang
+        key = self.aes_key_entry.get()
+        input_text = self._safe_get_textbox_text(self.aes_input_textbox)
+
+        if not key:
+            messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                 lang.get("dialog_aes_error_key", "Key cannot be empty."))
+            return
+        if not input_text:
+            messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                 lang.get("dialog_aes_error_input", "Input cannot be empty."))
+            return
+
+        try:
+            key_bytes = key.encode('utf-8')
+            key_size = int(self.aes_key_size.get())
+            key_len_bytes = key_size // 8
+            iv_len_bytes = AES.block_size  # 16 байт для AES
+
+            # aesencryption.net використовує MD5 для EVP_BytesToKey
+            hasher = hashlib.md5
+
+            if mode == lang.get("mode_encrypt", "Encrypt"):
+                # 1. Генеруємо випадкову 8-байтну сіль
+                salt = os.urandom(8)
+
+                # 2. Отримуємо ключ та IV з пароля та солі
+                final_key, final_iv = evp_bytes_to_key(key_bytes, salt, key_len_bytes, iv_len_bytes, hasher)
+
+                # 3. Шифруємо
+                cipher = AES.new(final_key, AES.MODE_CBC, final_iv)
+                data_bytes = input_text.encode('utf-8')
+                padded_data = pad(data_bytes, AES.block_size, style='pkcs7')
+                ciphertext = cipher.encrypt(padded_data)
+
+                # 4. Додаємо заголовок "Salted__" та саму сіль (стандарт OpenSSL)
+                salted_ciphertext = b"Salted__" + salt + ciphertext
+
+                # 5. Кодуємо в Base64
+                output_b64 = base64.b64encode(salted_ciphertext).decode('utf-8')
+                self._safe_set_textbox_text(self.aes_output_textbox, output_b64)
+
+            else:  # Decrypt
+                # 1. Декодуємо з Base64
+                try:
+                    ciphertext_bytes = base64.b64decode(input_text.encode('utf-8'))
+                except Exception as e:
+                    messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                         lang.get("dialog_aes_error_base64", "Input is not valid Base64.") + f"\n{e}")
+                    return
+
+                # 2. Перевіряємо заголовок "Salted__" та витягуємо сіль
+                if not ciphertext_bytes.startswith(b"Salted__"):
+                    messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                         "Помилка: Вхідні дані не у форматі OpenSSL 'Salted'.\n"
+                                         "Цей метод сумісний лише з aesencryption.net (або подібними), "
+                                         "які використовують сіль.")
+                    return
+
+                salt = ciphertext_bytes[8:16]  # 8 байт солі
+                actual_ciphertext = ciphertext_bytes[16:]  # Решта - зашифровані дані
+
+                if len(salt) != 8:
+                    messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                         "Помилка: Сіль пошкоджена або відсутня.")
+                    return
+
+                # 3. Отримуємо ключ та IV з пароля та солі
+                final_key, final_iv = evp_bytes_to_key(key_bytes, salt, key_len_bytes, iv_len_bytes, hasher)
+
+                # 4. Розшифровуємо
+                cipher = AES.new(final_key, AES.MODE_CBC, final_iv)
+                decrypted_padded_data = cipher.decrypt(actual_ciphertext)
+
+                # 5. Знімаємо "padding" та виводимо
+                try:
+                    decrypted_data = unpad(decrypted_padded_data, AES.block_size, style='pkcs7')
+                    self._safe_set_textbox_text(self.aes_output_textbox, decrypted_data.decode('utf-8'))
+                except (ValueError, UnicodeDecodeError) as e:
+                    messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                         lang.get("dialog_aes_error_decrypt",
+                                                  "Decryption failed. Check key, key size, or padding.") + f"\n{e}")
+                    self._safe_set_textbox_text(self.aes_output_textbox, "")  # Очистити вивід
+
+        except Exception as e:
+            messagebox.showerror(lang.get("dialog_error_title", "Error"),
+                                 lang.get("dialog_aes_error_generic",
+                                          "An error occurred during AES processing.") + f"\n{type(e).__name__}: {e}")
+            self._safe_set_textbox_text(self.aes_output_textbox, "")
 
     def setup_sdes_frame_widgets(self):
         # ВАЖЛИВО: Встановлюємо 'tab' як псевдонім для 'self.sdes_frame'
@@ -1679,64 +2330,7 @@ class StegoApp(ctk.CTk):
         self.about_frame.grid(row=0, column=1, sticky="nswe", padx=20, pady=20)
 
     # ---------- AES / S-DES operations ----------
-    def perform_aes_operation(self):
-        lang = LANG_STRINGS[self.current_lang.get()]
-        mode = self.aes_mode.get()
-        data = self.aes_input_textbox.get("1.0", tk.END).strip()
-        key = self.aes_key_entry.get().strip()
 
-        self.aes_output_textbox.delete("1.0", tk.END)
-        if not CRYPTO_AVAILABLE:
-            self.aes_status_label.configure(text=lang["crypto_error_crypto_missing"], text_color="red")
-            return
-
-        try:
-            if mode == lang["mode_encrypt"]:
-                ct_b64 = aes_encrypt_text(data, key)
-                self.aes_output_textbox.insert("1.0", ct_b64)
-            else:
-                try:
-                    pt = aes_decrypt_text(data, key)
-                    self.aes_output_textbox.insert("1.0", pt)
-                except Exception as e:
-                    self.aes_output_textbox.insert("1.0", f"Decrypt error: {e}")
-            self.aes_status_label.configure(text="OK", text_color="green")
-        except Exception as e:
-            self.aes_status_label.configure(text=f"Error: {e}", text_color="red")
-
-    def perform_aes_bruteforce(self):
-        lang = LANG_STRINGS[self.current_lang.get()]
-        cipher_b64 = self.aes_input_textbox.get("1.0", tk.END).strip()
-        maxlen_s = self.aes_pin_maxlen_entry.get().strip()
-        known_fragment_s = self.aes_output_textbox.get("1.0", tk.END).strip()
-        try:
-            maxlen = int(maxlen_s)
-            if maxlen < 1: maxlen = 1
-            if maxlen > 6: maxlen = 6
-        except Exception:
-            maxlen = 4
-        known_fragment = known_fragment_s.encode('utf-8') if known_fragment_s else None
-
-        if not cipher_b64:
-            self.aes_status_label.configure(text="Provide AES base64 ciphertext in input box", text_color="red")
-            return
-        if not CRYPTO_AVAILABLE:
-            self.aes_status_label.configure(text=lang["crypto_error_crypto_missing"], text_color="red")
-            return
-
-        self.aes_status_label.configure(text=lang["brute_status"], text_color="yellow")
-        self.update_idletasks()
-
-        def worker():
-            try:
-                start = time.time()
-                matches = aes_bruteforce_pin(cipher_b64, known_fragment=known_fragment, max_pin_length=maxlen)
-                duration = time.time() - start
-                self.after(0, self._aes_brute_done_callback, matches, duration)
-            except Exception as e:
-                self.after(0, lambda: self.aes_status_label.configure(text=f"Error: {e}", text_color="red"))
-
-        threading.Thread(target=worker, daemon=True).start()
 
     def _aes_brute_done_callback(self, matches, duration):
         lang = LANG_STRINGS[self.current_lang.get()]
