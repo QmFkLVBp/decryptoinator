@@ -242,6 +242,36 @@ LANG_STRINGS = {
         "dialog_brute_sdes_msg": "Знайдено {0} можливих збігів (макс. 100):\n\n{1}",
         "dialog_brute_sdes_match": "Ключ: {0}\nТекст: {1}...\n",
         "dialog_brute_sdes_no_match": "Не знайдено ключа, що відповідає критеріям.",
+        # Substitution cipher strings
+        "nav_subst": "Заміни",
+        "subst_title": "Вікно: Моноалфавітна Заміна",
+        "subst_input_label": "Шифротекст:",
+        "subst_freq_chars_label": "Частотний аналіз символів:",
+        "subst_freq_bigrams_label": "Частотний аналіз біграм:",
+        "subst_mapping_label": "Таблиця заміни:",
+        "subst_cipher_col": "Шифр",
+        "subst_plain_col": "Текст",
+        "subst_add_row": "+ Рядок",
+        "subst_remove_row": "- Рядок",
+        "subst_analyze": "Аналізувати",
+        "subst_apply": "Застосувати",
+        "subst_clear": "Очистити",
+        "subst_export": "Експорт",
+        "subst_import": "Імпорт",
+        "subst_suggest": "Авто-підказка",
+        "subst_output_label": "Результат заміни:",
+        "subst_lang_label": "Мова частот:",
+        "subst_lang_ua": "Українська",
+        "subst_lang_en": "Англійська",
+        "subst_status_ok_analyze": "Частотний аналіз завершено.",
+        "subst_status_ok_apply": "Заміну застосовано.",
+        "subst_status_ok_suggest": "Авто-підказка згенерована.",
+        "subst_status_ok_export": "Таблицю експортовано.",
+        "subst_status_ok_import": "Таблицю імпортовано.",
+        "subst_status_ok_clear": "Таблицю очищено.",
+        "subst_status_error_input": "Помилка: Введіть шифротекст.",
+        "subst_status_error_import": "Помилка: Невалідний JSON файл.",
+        "subst_status_error_export": "Помилка: Не вдалося зберегти файл.",
     },
     "en": {
         "title": "DECRYPTOINATOR 1000",
@@ -381,6 +411,36 @@ LANG_STRINGS = {
         "dialog_brute_sdes_msg": "Found {0} possible matches (max 100 shown):\n\n{1}",
         "dialog_brute_sdes_match": "Key: {0}\nPlaintext: {1}...\n",
         "dialog_brute_sdes_no_match": "No key found that matched the criteria.",
+        # Substitution cipher strings
+        "nav_subst": "Substitution",
+        "subst_title": "Window: Monoalphabetic Substitution",
+        "subst_input_label": "Ciphertext:",
+        "subst_freq_chars_label": "Character Frequency Analysis:",
+        "subst_freq_bigrams_label": "Bigram Frequency Analysis:",
+        "subst_mapping_label": "Substitution Table:",
+        "subst_cipher_col": "Cipher",
+        "subst_plain_col": "Plain",
+        "subst_add_row": "+ Row",
+        "subst_remove_row": "- Row",
+        "subst_analyze": "Analyze",
+        "subst_apply": "Apply",
+        "subst_clear": "Clear",
+        "subst_export": "Export",
+        "subst_import": "Import",
+        "subst_suggest": "Suggest",
+        "subst_output_label": "Decrypted Result:",
+        "subst_lang_label": "Frequency Language:",
+        "subst_lang_ua": "Ukrainian",
+        "subst_lang_en": "English",
+        "subst_status_ok_analyze": "Frequency analysis complete.",
+        "subst_status_ok_apply": "Substitution applied.",
+        "subst_status_ok_suggest": "Auto-suggestion generated.",
+        "subst_status_ok_export": "Mapping exported.",
+        "subst_status_ok_import": "Mapping imported.",
+        "subst_status_ok_clear": "Mapping cleared.",
+        "subst_status_error_input": "Error: Enter ciphertext.",
+        "subst_status_error_import": "Error: Invalid JSON file.",
+        "subst_status_error_export": "Error: Could not save file.",
     }
 }
 
@@ -897,6 +957,136 @@ def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = N
     # otherwise cannot attempt
     return matches
 
+# -------------------------
+# Substitution Cipher Helper Functions
+# -------------------------
+import json
+
+# Ukrainian letter frequencies (approximate, based on typical text analysis)
+UKRAINIAN_LETTER_FREQ = [
+    ('О', 0.094), ('А', 0.073), ('Н', 0.066), ('І', 0.062), ('Е', 0.055),
+    ('И', 0.054), ('В', 0.052), ('Р', 0.047), ('Т', 0.045), ('С', 0.040),
+    ('К', 0.038), ('Л', 0.036), ('Д', 0.033), ('П', 0.031), ('М', 0.029),
+    ('У', 0.028), ('Я', 0.024), ('Б', 0.020), ('З', 0.019), ('Ь', 0.017),
+    ('Г', 0.016), ('Ч', 0.015), ('Й', 0.014), ('Х', 0.011), ('Ц', 0.009),
+    ('Ж', 0.008), ('Ш', 0.007), ('Ю', 0.006), ('Є', 0.005), ('Щ', 0.004),
+    ('Ф', 0.003), ('Ї', 0.002), ('Ґ', 0.001),
+]
+
+# English letter frequencies (approximate)
+ENGLISH_LETTER_FREQ = [
+    ('E', 0.127), ('T', 0.091), ('A', 0.082), ('O', 0.075), ('I', 0.070),
+    ('N', 0.067), ('S', 0.063), ('H', 0.061), ('R', 0.060), ('D', 0.043),
+    ('L', 0.040), ('C', 0.028), ('U', 0.028), ('M', 0.024), ('W', 0.024),
+    ('F', 0.022), ('G', 0.020), ('Y', 0.020), ('P', 0.019), ('B', 0.015),
+    ('V', 0.010), ('K', 0.008), ('J', 0.002), ('X', 0.002), ('Q', 0.001),
+    ('Z', 0.001),
+]
+
+
+def compute_char_freq(text: str) -> List[Tuple[str, int, float]]:
+    """
+    Compute frequency of each character in text.
+    Returns list of (char, count, percentage) sorted by count descending.
+    Only considers visible printable characters.
+    """
+    # Filter to printable characters
+    filtered = [c for c in text if c.isprintable() and not c.isspace()]
+    if not filtered:
+        return []
+    counter = Counter(filtered)
+    total = len(filtered)
+    result = []
+    for char, count in counter.most_common():
+        pct = (count / total) * 100 if total > 0 else 0.0
+        result.append((char, count, pct))
+    return result
+
+
+def compute_bigram_freq(text: str, top_n: int = 20) -> List[Tuple[str, int, float]]:
+    """
+    Compute frequency of bigrams (2-character pairs) in text.
+    Returns list of (bigram, count, percentage) sorted by count descending.
+    Only considers alphanumeric characters in sequence.
+    """
+    # Filter to alphanumeric only
+    filtered = [c for c in text if c.isalnum()]
+    if len(filtered) < 2:
+        return []
+    bigrams = [''.join(pair) for pair in zip(filtered, filtered[1:])]
+    counter = Counter(bigrams)
+    total = len(bigrams)
+    result = []
+    for bg, count in counter.most_common(top_n):
+        pct = (count / total) * 100 if total > 0 else 0.0
+        result.append((bg, count, pct))
+    return result
+
+
+def apply_substitution_mapping(text: str, mapping: dict) -> str:
+    """
+    Apply substitution mapping to text using longest-match-first replacement.
+    mapping: dict of {cipher_symbol: plain_symbol}
+    Replaces longest matching keys first to avoid partial overlap issues.
+    """
+    if not mapping:
+        return text
+    # Sort keys by length descending for longest-match-first
+    sorted_keys = sorted(mapping.keys(), key=len, reverse=True)
+    result = text
+    for key in sorted_keys:
+        if key and key in result:
+            result = result.replace(key, mapping[key])
+    return result
+
+
+def suggest_mapping_by_frequency(text: str, lang: str, limit: int = 10) -> dict:
+    """
+    Auto-suggest a substitution mapping by matching the most frequent
+    cipher symbols to the most frequent letters for the given language.
+    lang: 'ua' or 'en'
+    limit: how many mappings to suggest
+    Returns dict of {cipher_symbol: suggested_letter}
+    """
+    freq_list = compute_char_freq(text)
+    if not freq_list:
+        return {}
+    
+    # Get reference frequencies for the language
+    if lang == 'ua':
+        ref_letters = [letter for letter, _ in UKRAINIAN_LETTER_FREQ]
+    else:
+        ref_letters = [letter for letter, _ in ENGLISH_LETTER_FREQ]
+    
+    # Match top cipher symbols to top reference letters
+    mapping = {}
+    for i, (cipher_char, _, _) in enumerate(freq_list[:limit]):
+        if i < len(ref_letters):
+            mapping[cipher_char] = ref_letters[i]
+    
+    return mapping
+
+
+def serialize_mapping(mapping: dict) -> str:
+    """Serialize mapping dict to JSON string."""
+    return json.dumps({"mapping": mapping}, ensure_ascii=False, indent=2)
+
+
+def deserialize_mapping(s: str) -> dict:
+    """Deserialize JSON string to mapping dict. Raises ValueError on invalid JSON."""
+    try:
+        data = json.loads(s)
+        if isinstance(data, dict) and "mapping" in data:
+            return data["mapping"]
+        elif isinstance(data, dict):
+            # Try to use data directly as mapping
+            return data
+        else:
+            raise ValueError("Invalid mapping format")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON: {e}")
+
+
 class StegoApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -1016,15 +1206,18 @@ class StegoApp(ctk.CTk):
         self.ela_button = self._create_widget(ctk.CTkButton, self.nav_frame, command=self.show_ela_frame, anchor="w")
         self.ela_button.grid(row=8, column=0, padx=20, pady=5, sticky="ew")
 
-        self.nav_frame.grid_rowconfigure(9, weight=1)
+        self.subst_button = self._create_widget(ctk.CTkButton, self.nav_frame, command=self.show_subst_frame, anchor="w")
+        self.subst_button.grid(row=9, column=0, padx=20, pady=5, sticky="ew")
+
+        self.nav_frame.grid_rowconfigure(10, weight=1)
 
         self.settings_button = self._create_widget(ctk.CTkButton, self.nav_frame, command=self.show_settings_frame,
                                                    anchor="w")
-        self.settings_button.grid(row=10, column=0, padx=20, pady=5, sticky="ew")
+        self.settings_button.grid(row=11, column=0, padx=20, pady=5, sticky="ew")
 
         self.about_button = self._create_widget(ctk.CTkButton, self.nav_frame, command=self.show_about_frame,
                                                 anchor="w")
-        self.about_button.grid(row=11, column=0, padx=20, pady=20, sticky="ew")
+        self.about_button.grid(row=12, column=0, padx=20, pady=20, sticky="ew")
 
     def load_network_logo(self):
         threading.Thread(target=self._download_logo, daemon=True).start()
@@ -1061,6 +1254,7 @@ class StegoApp(ctk.CTk):
         self.ela_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.ela_frame.is_themeable = False
         self.aes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.aes_frame.is_themeable = False
         self.sdes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.sdes_frame.is_themeable = False
+        self.subst_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.subst_frame.is_themeable = False
         self.settings_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.settings_frame.is_themeable = False
         self.about_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.about_frame.is_themeable = False
 
@@ -1072,6 +1266,7 @@ class StegoApp(ctk.CTk):
         self.setup_ela_frame_widgets()
         self.setup_aes_frame_widgets()
         self.setup_sdes_frame_widgets()
+        self.setup_subst_frame_widgets()
         self.setup_settings_frame_widgets()
         self.setup_about_frame_widgets()
 
@@ -1981,6 +2176,54 @@ class StegoApp(ctk.CTk):
         if hasattr(self, "about_links_label"):
             self.about_links_label.configure(text=lang["about_links_label"])
 
+        # Substitution texts
+        if hasattr(self, 'subst_button'):
+            self.subst_button.configure(text=lang.get("nav_subst", "Substitution"))
+        if hasattr(self, 'subst_title'):
+            self.subst_title.configure(text=lang.get("subst_title", "Substitution"))
+        if hasattr(self, 'subst_input_label'):
+            self.subst_input_label.configure(text=lang.get("subst_input_label", "Ciphertext:"))
+        if hasattr(self, 'subst_freq_chars_label'):
+            self.subst_freq_chars_label.configure(text=lang.get("subst_freq_chars_label", "Character Frequency:"))
+        if hasattr(self, 'subst_freq_bigrams_label'):
+            self.subst_freq_bigrams_label.configure(text=lang.get("subst_freq_bigrams_label", "Bigram Frequency:"))
+        if hasattr(self, 'subst_mapping_label'):
+            self.subst_mapping_label.configure(text=lang.get("subst_mapping_label", "Mapping Table:"))
+        if hasattr(self, 'subst_header_cipher'):
+            self.subst_header_cipher.configure(text=lang.get("subst_cipher_col", "Cipher"))
+        if hasattr(self, 'subst_header_plain'):
+            self.subst_header_plain.configure(text=lang.get("subst_plain_col", "Plain"))
+        if hasattr(self, 'subst_add_row_btn'):
+            self.subst_add_row_btn.configure(text=lang.get("subst_add_row", "+ Row"))
+        if hasattr(self, 'subst_remove_row_btn'):
+            self.subst_remove_row_btn.configure(text=lang.get("subst_remove_row", "- Row"))
+        if hasattr(self, 'subst_analyze_btn'):
+            self.subst_analyze_btn.configure(text=lang.get("subst_analyze", "Analyze"))
+        if hasattr(self, 'subst_apply_btn'):
+            self.subst_apply_btn.configure(text=lang.get("subst_apply", "Apply"))
+        if hasattr(self, 'subst_suggest_btn'):
+            self.subst_suggest_btn.configure(text=lang.get("subst_suggest", "Suggest"))
+        if hasattr(self, 'subst_clear_btn'):
+            self.subst_clear_btn.configure(text=lang.get("subst_clear", "Clear"))
+        if hasattr(self, 'subst_export_btn'):
+            self.subst_export_btn.configure(text=lang.get("subst_export", "Export"))
+        if hasattr(self, 'subst_import_btn'):
+            self.subst_import_btn.configure(text=lang.get("subst_import", "Import"))
+        if hasattr(self, 'subst_output_label'):
+            self.subst_output_label.configure(text=lang.get("subst_output_label", "Decrypted Result:"))
+        if hasattr(self, 'subst_lang_label'):
+            self.subst_lang_label.configure(text=lang.get("subst_lang_label", "Frequency Language:"))
+        # Update the language menu values
+        if hasattr(self, 'subst_freq_lang_menu'):
+            current_val = self.subst_freq_lang_var.get()
+            new_values = [lang.get("subst_lang_ua", "Ukrainian"), lang.get("subst_lang_en", "English")]
+            self.subst_freq_lang_menu.configure(values=new_values)
+            # Try to keep the selection consistent
+            if current_val in ["Українська", "Ukrainian", lang.get("subst_lang_ua", "Ukrainian")]:
+                self.subst_freq_lang_var.set(lang.get("subst_lang_ua", "Ukrainian"))
+            else:
+                self.subst_freq_lang_var.set(lang.get("subst_lang_en", "English"))
+
     # ---------- AES and S-DES UI setup ----------
     # ---- Додайте на рівні модуля (після імпортів) ----
     def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int, iv_len: int, hasher=hashlib.md5) -> Tuple[
@@ -2276,11 +2519,332 @@ class StegoApp(ctk.CTk):
                                                   command=self.on_sdes_brute_run)
         self.sdes_brute_btn.grid(row=4, column=0, pady=10, sticky="ew")
 
+    def setup_subst_frame_widgets(self):
+        """Setup the Substitution Cipher frame widgets."""
+        tab = self.subst_frame
+
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_columnconfigure(1, weight=1)
+        tab.grid_rowconfigure(4, weight=1)
+
+        # Title
+        self.subst_title = self._create_widget(ctk.CTkLabel, tab,
+                                               font=ctk.CTkFont(size=18, weight="bold"))
+        self.subst_title.grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="w")
+
+        # --- Left Column: Input & Frequency Analysis ---
+        left_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
+        left_frame.grid(row=1, column=0, rowspan=4, padx=(20, 10), pady=10, sticky="nsew")
+        left_frame.grid_columnconfigure(0, weight=1)
+        left_frame.grid_rowconfigure(4, weight=1)
+
+        # Input textbox
+        self.subst_input_label = self._create_widget(ctk.CTkLabel, left_frame)
+        self.subst_input_label.grid(row=0, column=0, sticky="w")
+        self.subst_input_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=100)
+        self.subst_input_textbox.grid(row=1, column=0, pady=(0, 10), sticky="nsew")
+
+        # Analyze button
+        self.subst_analyze_btn = self._create_widget(ctk.CTkButton, left_frame, command=self.perform_subst_analyze)
+        self.subst_analyze_btn.grid(row=2, column=0, pady=5, sticky="ew")
+
+        # Character frequency label and textbox
+        self.subst_freq_chars_label = self._create_widget(ctk.CTkLabel, left_frame)
+        self.subst_freq_chars_label.grid(row=3, column=0, sticky="w")
+        self.subst_freq_chars_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=100,
+                                                            font=("Courier New", 11))
+        self.subst_freq_chars_textbox.grid(row=4, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_freq_chars_textbox.configure(state="disabled")
+
+        # Bigram frequency label and textbox
+        self.subst_freq_bigrams_label = self._create_widget(ctk.CTkLabel, left_frame)
+        self.subst_freq_bigrams_label.grid(row=5, column=0, sticky="w")
+        self.subst_freq_bigrams_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=80,
+                                                              font=("Courier New", 11))
+        self.subst_freq_bigrams_textbox.grid(row=6, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_freq_bigrams_textbox.configure(state="disabled")
+
+        # --- Right Column: Mapping Table & Output ---
+        right_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
+        right_frame.grid(row=1, column=1, rowspan=4, padx=(10, 20), pady=10, sticky="nsew")
+        right_frame.grid_columnconfigure(0, weight=1)
+        right_frame.grid_rowconfigure(3, weight=1)
+
+        # Mapping table label and language selector
+        mapping_header = self._create_widget(ctk.CTkFrame, right_frame, fg_color="transparent")
+        mapping_header.grid(row=0, column=0, sticky="ew")
+        mapping_header.grid_columnconfigure(1, weight=1)
+
+        self.subst_mapping_label = self._create_widget(ctk.CTkLabel, mapping_header)
+        self.subst_mapping_label.grid(row=0, column=0, sticky="w")
+
+        # Language dropdown for frequency baseline
+        self.subst_lang_label = self._create_widget(ctk.CTkLabel, mapping_header)
+        self.subst_lang_label.grid(row=0, column=2, padx=(10, 5), sticky="e")
+
+        lang = LANG_STRINGS[self.current_lang.get()]
+        self.subst_freq_lang_var = ctk.StringVar(value=lang.get("subst_lang_ua", "Ukrainian"))
+        self.subst_freq_lang_menu = self._create_widget(
+            ctk.CTkOptionMenu, mapping_header,
+            values=[lang.get("subst_lang_ua", "Ukrainian"), lang.get("subst_lang_en", "English")],
+            variable=self.subst_freq_lang_var,
+            width=120
+        )
+        self.subst_freq_lang_menu.grid(row=0, column=3, padx=5, sticky="e")
+
+        # Mapping table container with scrollable frame
+        self.subst_mapping_container = self._create_widget(ctk.CTkScrollableFrame, right_frame, height=180)
+        self.subst_mapping_container.grid(row=1, column=0, pady=5, sticky="nsew")
+        self.subst_mapping_container.grid_columnconfigure((0, 1), weight=1)
+
+        # Initialize mapping rows list
+        self.subst_mapping_rows = []
+
+        # Header row for mapping table
+        header_cipher = self._create_widget(ctk.CTkLabel, self.subst_mapping_container, text="")
+        header_cipher.grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        self.subst_header_cipher = header_cipher
+
+        header_plain = self._create_widget(ctk.CTkLabel, self.subst_mapping_container, text="")
+        header_plain.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        self.subst_header_plain = header_plain
+
+        # Initialize with digits 0-9 as default mapping rows
+        for i in range(10):
+            self.add_mapping_row(initial_cipher=str(i))
+
+        # Buttons for add/remove rows
+        row_btns_frame = self._create_widget(ctk.CTkFrame, right_frame, fg_color="transparent")
+        row_btns_frame.grid(row=2, column=0, pady=5, sticky="ew")
+
+        self.subst_add_row_btn = self._create_widget(ctk.CTkButton, row_btns_frame, width=80,
+                                                     command=self.add_mapping_row)
+        self.subst_add_row_btn.grid(row=0, column=0, padx=5)
+
+        self.subst_remove_row_btn = self._create_widget(ctk.CTkButton, row_btns_frame, width=80,
+                                                        command=self.remove_mapping_row)
+        self.subst_remove_row_btn.grid(row=0, column=1, padx=5)
+
+        # Action buttons frame
+        action_btns_frame = self._create_widget(ctk.CTkFrame, right_frame, fg_color="transparent")
+        action_btns_frame.grid(row=3, column=0, pady=5, sticky="ew")
+
+        self.subst_apply_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
+                                                   command=self.perform_subst_apply)
+        self.subst_apply_btn.grid(row=0, column=0, padx=3)
+
+        self.subst_suggest_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
+                                                     command=self.perform_subst_suggest)
+        self.subst_suggest_btn.grid(row=0, column=1, padx=3)
+
+        self.subst_clear_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
+                                                   command=self.perform_subst_clear)
+        self.subst_clear_btn.grid(row=0, column=2, padx=3)
+
+        self.subst_export_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
+                                                    command=self.perform_subst_export)
+        self.subst_export_btn.grid(row=0, column=3, padx=3)
+
+        self.subst_import_btn = self._create_widget(ctk.CTkButton, action_btns_frame, width=80,
+                                                    command=self.perform_subst_import)
+        self.subst_import_btn.grid(row=0, column=4, padx=3)
+
+        # Output textbox
+        self.subst_output_label = self._create_widget(ctk.CTkLabel, right_frame)
+        self.subst_output_label.grid(row=4, column=0, sticky="w")
+        self.subst_output_textbox = self._create_widget(ctk.CTkTextbox, right_frame, height=100)
+        self.subst_output_textbox.grid(row=5, column=0, pady=(0, 10), sticky="nsew")
+
+        # Status label
+        self.subst_status_label = self._create_widget(ctk.CTkLabel, tab, text="",
+                                                      font=ctk.CTkFont(size=12))
+        self.subst_status_label.grid(row=5, column=0, columnspan=2, padx=20, pady=5, sticky="w")
+
+    def add_mapping_row(self, initial_cipher: str = "", initial_plain: str = ""):
+        """Add a new row to the substitution mapping table."""
+        row_idx = len(self.subst_mapping_rows) + 1  # +1 because row 0 is header
+
+        cipher_entry = self._create_widget(ctk.CTkEntry, self.subst_mapping_container, width=80)
+        cipher_entry.grid(row=row_idx, column=0, padx=5, pady=2, sticky="ew")
+        if initial_cipher:
+            cipher_entry.insert(0, initial_cipher)
+
+        plain_entry = self._create_widget(ctk.CTkEntry, self.subst_mapping_container, width=80)
+        plain_entry.grid(row=row_idx, column=1, padx=5, pady=2, sticky="ew")
+        if initial_plain:
+            plain_entry.insert(0, initial_plain)
+
+        self.subst_mapping_rows.append((cipher_entry, plain_entry))
+
+    def remove_mapping_row(self):
+        """Remove the last row from the substitution mapping table."""
+        if self.subst_mapping_rows:
+            cipher_entry, plain_entry = self.subst_mapping_rows.pop()
+            cipher_entry.destroy()
+            plain_entry.destroy()
+
+    def get_current_mapping(self) -> dict:
+        """Get the current mapping dict from the UI entries."""
+        mapping = {}
+        for cipher_entry, plain_entry in self.subst_mapping_rows:
+            cipher = cipher_entry.get().strip()
+            plain = plain_entry.get().strip()
+            if cipher:  # Only add if cipher symbol is not empty
+                mapping[cipher] = plain
+        return mapping
+
+    def set_mapping_rows(self, mapping: dict):
+        """Set the mapping table rows from a dict."""
+        # Clear existing rows
+        while self.subst_mapping_rows:
+            self.remove_mapping_row()
+
+        # Add rows for the mapping
+        for cipher, plain in mapping.items():
+            self.add_mapping_row(initial_cipher=cipher, initial_plain=plain)
+
+        # If empty mapping, add at least one empty row
+        if not mapping:
+            self.add_mapping_row()
+
+    def perform_subst_analyze(self):
+        """Analyze the input ciphertext for character and bigram frequencies."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+
+        if not text:
+            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
+            return
+
+        # Compute character frequencies
+        char_freq = compute_char_freq(text)
+        char_text = "Sym  Count   %\n" + "-" * 20 + "\n"
+        for char, count, pct in char_freq[:30]:  # Top 30
+            display_char = repr(char) if not char.isprintable() else char
+            char_text += f"{display_char:4} {count:5}  {pct:5.1f}%\n"
+
+        # Compute bigram frequencies
+        bigram_freq = compute_bigram_freq(text, top_n=15)
+        bigram_text = "Bigram  Count   %\n" + "-" * 22 + "\n"
+        for bg, count, pct in bigram_freq:
+            bigram_text += f"{bg:6} {count:5}  {pct:5.1f}%\n"
+
+        # Update textboxes
+        self.subst_freq_chars_textbox.configure(state="normal")
+        self.subst_freq_chars_textbox.delete("1.0", tk.END)
+        self.subst_freq_chars_textbox.insert("1.0", char_text)
+        self.subst_freq_chars_textbox.configure(state="disabled")
+
+        self.subst_freq_bigrams_textbox.configure(state="normal")
+        self.subst_freq_bigrams_textbox.delete("1.0", tk.END)
+        self.subst_freq_bigrams_textbox.insert("1.0", bigram_text)
+        self.subst_freq_bigrams_textbox.configure(state="disabled")
+
+        self.subst_status_label.configure(text=lang["subst_status_ok_analyze"], text_color="green")
+
+    def perform_subst_apply(self):
+        """Apply the current mapping to the input text and show result."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+
+        if not text:
+            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
+            return
+
+        mapping = self.get_current_mapping()
+        result = apply_substitution_mapping(text, mapping)
+
+        self.subst_output_textbox.delete("1.0", tk.END)
+        self.subst_output_textbox.insert("1.0", result)
+        self.subst_status_label.configure(text=lang["subst_status_ok_apply"], text_color="green")
+
+    def perform_subst_suggest(self):
+        """Auto-suggest mapping based on frequency analysis."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+
+        if not text:
+            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
+            return
+
+        # Determine which language to use for frequency baseline
+        freq_lang_value = self.subst_freq_lang_var.get()
+        if freq_lang_value == lang.get("subst_lang_en", "English"):
+            target_lang = "en"
+        else:
+            target_lang = "ua"
+
+        # Get suggested mapping
+        suggested = suggest_mapping_by_frequency(text, target_lang, limit=10)
+
+        # Update mapping rows with suggestions (non-destructive - merge with existing)
+        current_mapping = self.get_current_mapping()
+        # Only add suggestions for symbols not already mapped
+        for cipher, plain in suggested.items():
+            if cipher not in current_mapping or not current_mapping[cipher]:
+                current_mapping[cipher] = plain
+
+        self.set_mapping_rows(current_mapping)
+        self.subst_status_label.configure(text=lang["subst_status_ok_suggest"], text_color="green")
+
+    def perform_subst_clear(self):
+        """Clear the mapping table."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        while self.subst_mapping_rows:
+            self.remove_mapping_row()
+        # Re-add default digit rows
+        for i in range(10):
+            self.add_mapping_row(initial_cipher=str(i))
+        self.subst_output_textbox.delete("1.0", tk.END)
+        self.subst_status_label.configure(text=lang["subst_status_ok_clear"], text_color="green")
+
+    def perform_subst_export(self):
+        """Export the current mapping to a JSON file."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        mapping = self.get_current_mapping()
+
+        try:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON Files", "*.json"), ("All files", "*.*")],
+                initialfile="mapping.json"
+            )
+            if not path:
+                return
+
+            json_str = serialize_mapping(mapping)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(json_str)
+
+            self.subst_status_label.configure(text=lang["subst_status_ok_export"], text_color="green")
+        except Exception as e:
+            self.subst_status_label.configure(text=f"{lang['subst_status_error_export']} {e}", text_color="red")
+
+    def perform_subst_import(self):
+        """Import a mapping from a JSON file."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+
+        try:
+            path = filedialog.askopenfilename(
+                filetypes=[("JSON Files", "*.json"), ("All files", "*.*")]
+            )
+            if not path:
+                return
+
+            with open(path, 'r', encoding='utf-8') as f:
+                json_str = f.read()
+
+            mapping = deserialize_mapping(json_str)
+            self.set_mapping_rows(mapping)
+            self.subst_status_label.configure(text=lang["subst_status_ok_import"], text_color="green")
+        except Exception as e:
+            self.subst_status_label.configure(text=f"{lang['subst_status_error_import']} {e}", text_color="red")
+
 
     # --- show/hide frames ---
     def hide_all_frames(self):
         for f in [self.xor_frame, self.lsb_frame, self.picker_frame, self.vigenere_frame, self.base64_frame, self.ela_frame,
-                  self.aes_frame, self.sdes_frame, self.settings_frame, self.about_frame]:
+                  self.aes_frame, self.sdes_frame, self.subst_frame, self.settings_frame, self.about_frame]:
             try:
                 f.grid_forget()
             except Exception:
@@ -2293,6 +2857,10 @@ class StegoApp(ctk.CTk):
     def show_sdes_frame(self):
         self.hide_all_frames()
         self.sdes_frame.grid(row=0, column=1, sticky="nswe", padx=20, pady=20)
+
+    def show_subst_frame(self):
+        self.hide_all_frames()
+        self.subst_frame.grid(row=0, column=1, sticky="nswe", padx=20, pady=20)
 
     def show_xor_frame(self):
         self.hide_all_frames()
