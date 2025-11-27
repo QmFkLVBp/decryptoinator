@@ -1057,8 +1057,8 @@ def apply_substitution_mapping(text: str, mapping: dict) -> str:
     """
     if not mapping:
         return text
-    # Filter out empty keys and empty plain values
-    valid_mapping = {k: v for k, v in mapping.items() if k and v}
+    # Filter out empty keys and empty plain values (use explicit check to preserve '0' etc)
+    valid_mapping = {k: v for k, v in mapping.items() if k != '' and v != ''}
     if not valid_mapping:
         return text
     # Sort keys by length descending for longest-match-first
@@ -1094,7 +1094,7 @@ def suggest_mapping_by_frequency(text: str, lang: str, limit: int = None) -> dic
     4. Uses bigram context hints to adjust high-confidence pairs
     
     lang: 'ua' or 'en'
-    limit: max symbols to map (None = all detected symbols)
+    limit: max symbols to map (None = all detected symbols, capped at 100 for performance)
     Returns dict of {cipher_symbol: suggested_letter}
     """
     # Detect and sort cipher symbols by frequency
@@ -1105,57 +1105,21 @@ def suggest_mapping_by_frequency(text: str, lang: str, limit: int = None) -> dic
     # Get reference letter frequencies for the language
     if lang == 'ua':
         ref_letters = [letter for letter, _ in UKRAINIAN_LETTER_FREQ]
-        ref_bigrams = [bg for bg, _ in UKRAINIAN_BIGRAM_FREQ]
     else:
         ref_letters = [letter for letter, _ in ENGLISH_LETTER_FREQ]
-        ref_bigrams = [bg for bg, _ in ENGLISH_BIGRAM_FREQ]
     
-    # Determine how many symbols to map
+    # Determine how many symbols to map (cap at 100 for performance)
+    max_symbols = 100
     if limit is None:
-        num_to_map = len(cipher_symbols)
+        num_to_map = min(len(cipher_symbols), max_symbols)
     else:
-        num_to_map = min(limit, len(cipher_symbols))
+        num_to_map = min(limit, len(cipher_symbols), max_symbols)
     
     # Initial mapping: match by frequency order
     mapping = {}
     for i in range(num_to_map):
         if i < len(ref_letters):
             mapping[cipher_symbols[i]] = ref_letters[i]
-    
-    # Bigram refinement: check if common bigrams in ciphertext match expected bigrams
-    cipher_bigrams = compute_bigram_freq(text, top_n=10)
-    if cipher_bigrams and len(mapping) >= 2:
-        # For top 3 cipher bigrams, check if they could match top reference bigrams
-        used_ref_letters = set(mapping.values())
-        
-        for i, (cipher_bg, _, _) in enumerate(cipher_bigrams[:3]):
-            if len(cipher_bg) != 2:
-                continue
-            c1, c2 = cipher_bg[0], cipher_bg[1]
-            
-            # Check corresponding reference bigram
-            if i < len(ref_bigrams):
-                ref_bg = ref_bigrams[i]
-                r1, r2 = ref_bg[0], ref_bg[1]
-                
-                # Only adjust if both cipher symbols are in mapping
-                # and the adjustment makes sense (don't break existing good mappings)
-                if c1 in mapping and c2 in mapping:
-                    current_m1 = mapping[c1]
-                    current_m2 = mapping[c2]
-                    
-                    # If current mapping doesn't form a common bigram,
-                    # consider swapping to match reference bigram pattern
-                    current_bg = current_m1 + current_m2
-                    
-                    # Only adjust if we're confident (top 2 bigrams in text)
-                    if i < 2:
-                        # Check if swapping would create a better bigram match
-                        if current_bg not in [bg for bg, _ in ref_bigrams[:15]]:
-                            # Try to adjust: if r1 or r2 not yet used, consider update
-                            if r1 not in used_ref_letters and r2 not in used_ref_letters:
-                                # Swap: this is a heuristic adjustment
-                                pass  # Keep original frequency-based for stability
     
     return mapping
 
