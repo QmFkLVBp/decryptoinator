@@ -1051,6 +1051,13 @@ connectivity_matrix = {
     'ha': 1.0, 'as': 1.0, 'ou': 1.0, 'io': 1.0, 'le': 1.0,
 }
 
+# Constants for substitution algorithms and UI
+MAX_CIPHER_SYMBOLS = 100  # Maximum cipher symbols to process
+MAX_BIGRAMS_TO_ANALYZE = 20  # Maximum bigrams to analyze during refinement
+MAX_UNDO_STACK_SIZE = 50  # Maximum undo stack entries
+CONFIDENCE_HIGH_COLOR = '#90EE90'  # Light green for high confidence
+CONFIDENCE_LOW_COLOR = '#FFB6C1'  # Light red/pink for low confidence
+
 
 def compute_char_freq(text: str) -> List[Tuple[str, int, float]]:
     """
@@ -1151,12 +1158,11 @@ def suggest_mapping_by_frequency(text: str, lang: str, limit: int = None) -> dic
     else:
         ref_letters = [letter for letter, _ in ENGLISH_LETTER_FREQ]
     
-    # Determine how many symbols to map (cap at 100 for performance)
-    max_symbols = 100
+    # Determine how many symbols to map (cap for performance)
     if limit is None:
-        num_to_map = min(len(cipher_symbols), max_symbols)
+        num_to_map = min(len(cipher_symbols), MAX_CIPHER_SYMBOLS)
     else:
-        num_to_map = min(limit, len(cipher_symbols), max_symbols)
+        num_to_map = min(limit, len(cipher_symbols), MAX_CIPHER_SYMBOLS)
     
     # Initial mapping: match by frequency order
     mapping = {}
@@ -1222,7 +1228,7 @@ def refine_with_bigrams(text: str, mapping: dict, bigrams: dict, conn_matrix: di
     
     # For each pair of cipher symbols that appear together frequently,
     # check if their mapped values form a common bigram in the target language
-    top_cipher_bigrams = cipher_bigrams.most_common(20)
+    top_cipher_bigrams = cipher_bigrams.most_common(MAX_BIGRAMS_TO_ANALYZE)
     
     for cipher_bg, count in top_cipher_bigrams:
         if len(cipher_bg) != 2:
@@ -1261,11 +1267,11 @@ def auto_suggest_substitution(text: str, lang: str) -> dict:
     if not text or not text.strip():
         return {}
     
-    # a) Detect cipher symbols (limit to 100 for performance)
+    # a) Detect cipher symbols (limit for performance)
     cipher_symbols = detect_cipher_symbols(text)
     if not cipher_symbols:
         return {}
-    cipher_symbols = cipher_symbols[:100]
+    cipher_symbols = cipher_symbols[:MAX_CIPHER_SYMBOLS]
     
     # b) Compute cipher frequencies (lowercase)
     cipher_freq = compute_cipher_frequencies_lower(text)
@@ -3129,7 +3135,7 @@ class StegoApp(ctk.CTk):
         # Clear redo stack when a new action is taken
         self.subst_redo_stack.clear()
         # Limit stack size to prevent memory issues
-        if len(self.subst_undo_stack) > 50:
+        if len(self.subst_undo_stack) > MAX_UNDO_STACK_SIZE:
             self.subst_undo_stack.pop(0)
 
     def restore_mapping(self, mapping: dict):
@@ -3264,9 +3270,9 @@ class StegoApp(ctk.CTk):
         """Set entry background color based on confidence level."""
         try:
             if level == "high":
-                entry.configure(fg_color="#90EE90")  # Light green
+                entry.configure(fg_color=CONFIDENCE_HIGH_COLOR)
             elif level == "low":
-                entry.configure(fg_color="#FFB6C1")  # Light red/pink
+                entry.configure(fg_color=CONFIDENCE_LOW_COLOR)
             else:
                 entry.configure(fg_color=None)  # Default
         except Exception:
