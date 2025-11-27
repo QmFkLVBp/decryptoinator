@@ -2,6 +2,7 @@ from __future__ import annotations
 import base64, binascii
 import hashlib
 import io
+import json
 import os
 import string
 import threading
@@ -960,7 +961,6 @@ def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = N
 # -------------------------
 # Substitution Cipher Helper Functions
 # -------------------------
-import json
 
 # Ukrainian letter frequencies (approximate, based on typical text analysis)
 UKRAINIAN_LETTER_FREQ = [
@@ -2818,7 +2818,8 @@ class StegoApp(ctk.CTk):
 
             self.subst_status_label.configure(text=lang["subst_status_ok_export"], text_color="green")
         except Exception as e:
-            self.subst_status_label.configure(text=f"{lang['subst_status_error_export']} {e}", text_color="red")
+            logger.error(f"Export mapping failed: {e}")
+            self.subst_status_label.configure(text=lang['subst_status_error_export'], text_color="red")
 
     def perform_subst_import(self):
         """Import a mapping from a JSON file."""
@@ -2838,7 +2839,8 @@ class StegoApp(ctk.CTk):
             self.set_mapping_rows(mapping)
             self.subst_status_label.configure(text=lang["subst_status_ok_import"], text_color="green")
         except Exception as e:
-            self.subst_status_label.configure(text=f"{lang['subst_status_error_import']} {e}", text_color="red")
+            logger.error(f"Import mapping failed: {e}")
+            self.subst_status_label.configure(text=lang['subst_status_error_import'], text_color="red")
 
 
     # --- show/hide frames ---
