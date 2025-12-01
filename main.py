@@ -294,6 +294,9 @@ LANG_STRINGS = {
         "subst_status_ok_export_txt": "Таблицю експортовано в TXT.",
         "subst_status_ok_import_txt": "Таблицю імпортовано з TXT.",
         "subst_status_error_import_txt": "Помилка: Невалідний TXT файл.",
+        "subst_export_report": "Звіт",
+        "subst_status_ok_export_report": "Звіт експортовано.",
+        "subst_bigram_connectivity_label": "Біграми та з'єднання:",
     },
     "en": {
         "title": "DECRYPTOINATOR 1000",
@@ -472,6 +475,9 @@ LANG_STRINGS = {
         "subst_status_ok_export_txt": "Mapping exported to TXT.",
         "subst_status_ok_import_txt": "Mapping imported from TXT.",
         "subst_status_error_import_txt": "Error: Invalid TXT file.",
+        "subst_export_report": "Report",
+        "subst_status_ok_export_report": "Report exported.",
+        "subst_bigram_connectivity_label": "Bigrams & Connectivity:",
     }
 }
 
@@ -1562,6 +1568,168 @@ def compute_token_bigram_freq(tokens: List[Tuple[str, bool]], top_n: int = 20) -
         pct = (count / total) * 100 if total > 0 else 0.0
         result.append((bg, count, pct))
     return result
+
+
+def compute_cipher_bigram_freq_table(text: str, mapping: dict, use_two_digit: bool, top_n: int = 15) -> List[dict]:
+    """
+    Compute cipher numeric-token bigram frequency table with mapped plaintext bigrams and connectivity scores.
+    Returns a list of dicts with keys: cipher_bigram, count, pct, mapped_bigram, connectivity_score
+    """
+    if use_two_digit:
+        tokens = tokenize_text_two_digit_mode(text)
+        digit_tokens = [t for t, is_digit in tokens if is_digit]
+    else:
+        # Extract consecutive digit sequences as tokens
+        digit_tokens = []
+        current_num = ""
+        for c in text:
+            if c.isdigit():
+                current_num += c
+            else:
+                if current_num:
+                    digit_tokens.append(current_num)
+                    current_num = ""
+        if current_num:
+            digit_tokens.append(current_num)
+    
+    if len(digit_tokens) < 2:
+        return []
+    
+    # Compute cipher bigrams
+    cipher_bigrams = [(digit_tokens[i], digit_tokens[i+1]) for i in range(len(digit_tokens) - 1)]
+    counter = Counter(cipher_bigrams)
+    total = len(cipher_bigrams)
+    
+    result = []
+    for (tok1, tok2), count in counter.most_common(top_n):
+        cipher_bg_str = f"{tok1}-{tok2}"
+        pct = (count / total) * 100 if total > 0 else 0.0
+        
+        # Get mapped letters
+        mapped1 = mapping.get(tok1, '?')
+        mapped2 = mapping.get(tok2, '?')
+        mapped_bg = (mapped1 + mapped2).lower()
+        
+        # Compute connectivity score against UA bigram model
+        conn_score = UA_COMMON_BIGRAMS.get(mapped_bg, 0.0)
+        if conn_score == 0:
+            conn_score = ukr_bigrams.get(mapped_bg, 0.0) * 10  # Scale for visibility
+        
+        result.append({
+            'cipher_bigram': cipher_bg_str,
+            'count': count,
+            'pct': pct,
+            'mapped_bigram': mapped_bg.upper(),
+            'connectivity_score': conn_score
+        })
+    
+    return result
+
+
+def compute_plaintext_bigram_freq_table(plaintext: str, top_n: int = 15) -> List[dict]:
+    """
+    Compute mapped plaintext bigram frequency table with connectivity scores.
+    Returns a list of dicts with keys: bigram, count, pct, connectivity_score
+    """
+    filtered = [c.lower() for c in plaintext if c.isalpha()]
+    if len(filtered) < 2:
+        return []
+    
+    bigrams = [''.join(pair) for pair in zip(filtered, filtered[1:])]
+    counter = Counter(bigrams)
+    total = len(bigrams)
+    
+    result = []
+    for bg, count in counter.most_common(top_n):
+        pct = (count / total) * 100 if total > 0 else 0.0
+        
+        # Compute connectivity score against UA bigram model
+        conn_score = UA_COMMON_BIGRAMS.get(bg, 0.0)
+        if conn_score == 0:
+            conn_score = ukr_bigrams.get(bg, 0.0) * 10  # Scale for visibility
+        
+        result.append({
+            'bigram': bg.upper(),
+            'count': count,
+            'pct': pct,
+            'connectivity_score': conn_score
+        })
+    
+    return result
+
+
+def format_connectivity_table(cipher_table: List[dict], plain_table: List[dict]) -> str:
+    """
+    Format bigram connectivity tables for display.
+    Returns a formatted string with both tables.
+    """
+    lines = []
+    
+    # Cipher token bigram table
+    lines.append("=== Cipher Token Bigrams ===")
+    lines.append(f"{'Tokens':10} {'Count':6} {'%':6} {'Mapped':8} {'UA Score':8}")
+    lines.append("-" * 42)
+    for entry in cipher_table:
+        score_str = f"{entry['connectivity_score']:.1f}" if entry['connectivity_score'] > 0 else "-"
+        lines.append(f"{entry['cipher_bigram']:10} {entry['count']:6} {entry['pct']:5.1f}% {entry['mapped_bigram']:8} {score_str:8}")
+    
+    lines.append("")
+    
+    # Plaintext bigram table
+    lines.append("=== Plaintext Bigrams ===")
+    lines.append(f"{'Bigram':8} {'Count':6} {'%':6} {'UA Score':8}")
+    lines.append("-" * 32)
+    for entry in plain_table:
+        score_str = f"{entry['connectivity_score']:.1f}" if entry['connectivity_score'] > 0 else "-"
+        lines.append(f"{entry['bigram']:8} {entry['count']:6} {entry['pct']:5.1f}% {score_str:8}")
+    
+    return '\n'.join(lines)
+
+
+def export_mapping_report(mapping: dict, text: str, plaintext: str, use_two_digit: bool, filepath: str, format: str = 'txt'):
+    """
+    Export number→letter correspondence report to file.
+    Supports TXT and CSV formats.
+    """
+    if format.lower() == 'csv':
+        lines = ['Cipher,Plain']
+        for cipher, plain in sorted(mapping.items()):
+            lines.append(f'"{cipher}","{plain}"')
+        
+        # Add bigram connectivity section
+        lines.append('')
+        lines.append('Cipher Bigram,Count,Pct,Mapped Bigram,UA Score')
+        cipher_table = compute_cipher_bigram_freq_table(text, mapping, use_two_digit)
+        for entry in cipher_table:
+            lines.append(f'"{entry["cipher_bigram"]}",{entry["count"]},{entry["pct"]:.1f},"{entry["mapped_bigram"]}",{entry["connectivity_score"]:.1f}')
+        
+        content = '\n'.join(lines)
+    else:  # TXT format
+        lines = []
+        lines.append("=" * 50)
+        lines.append("SUBSTITUTION MAPPING REPORT")
+        lines.append("=" * 50)
+        lines.append("")
+        
+        # Mapping table
+        lines.append("--- Number → Letter Mapping ---")
+        lines.append(f"{'Cipher':10} {'Plain':10}")
+        lines.append("-" * 22)
+        for cipher, plain in sorted(mapping.items()):
+            lines.append(f"{cipher:10} {plain:10}")
+        
+        lines.append("")
+        
+        # Bigram connectivity
+        cipher_table = compute_cipher_bigram_freq_table(text, mapping, use_two_digit)
+        plain_table = compute_plaintext_bigram_freq_table(plaintext)
+        lines.append(format_connectivity_table(cipher_table, plain_table))
+        
+        content = '\n'.join(lines)
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(content)
+
 
 def detect_cipher_symbols_tokens(tokens: List[Tuple[str, bool]]) -> List[str]:
     """Return distinct digit tokens sorted by frequency."""
@@ -3310,8 +3478,12 @@ class StegoApp(ctk.CTk):
             self.subst_export_txt_btn.configure(text=lang.get("subst_export_txt", "Export TXT"))
         if hasattr(self, 'subst_import_txt_btn'):
             self.subst_import_txt_btn.configure(text=lang.get("subst_import_txt", "Import TXT"))
+        if hasattr(self, 'subst_export_report_btn'):
+            self.subst_export_report_btn.configure(text=lang.get("subst_export_report", "Report"))
         if hasattr(self, 'subst_output_label'):
             self.subst_output_label.configure(text=lang.get("subst_output_label", "Decrypted Result:"))
+        if hasattr(self, 'subst_bigram_connectivity_label'):
+            self.subst_bigram_connectivity_label.configure(text=lang.get("subst_bigram_connectivity_label", "Bigrams & Connectivity:"))
         if hasattr(self, 'subst_lang_label'):
             self.subst_lang_label.configure(text=lang.get("subst_lang_label", "Frequency Language:"))
         # Update the language menu values
@@ -3812,11 +3984,24 @@ class StegoApp(ctk.CTk):
                                                         command=self.perform_subst_import_txt)
         self.subst_import_txt_btn.grid(row=0, column=5, padx=3)
 
+        # NEW: Export Report button (exports number→letter correspondence with bigram connectivity)
+        self.subst_export_report_btn = self._create_widget(ctk.CTkButton, action_btns_frame2, width=70,
+                                                           command=self.perform_subst_export_report)
+        self.subst_export_report_btn.grid(row=0, column=6, padx=3)
+
         # Output textbox - INCREASED height for better visibility of results
         self.subst_output_label = self._create_widget(ctk.CTkLabel, right_frame)
         self.subst_output_label.grid(row=5, column=0, sticky="w")
         self.subst_output_textbox = self._create_widget(ctk.CTkTextbox, right_frame, height=150)
         self.subst_output_textbox.grid(row=6, column=0, pady=(0, 10), sticky="nsew")
+        
+        # NEW: Bigram connectivity label and textbox
+        self.subst_bigram_connectivity_label = self._create_widget(ctk.CTkLabel, right_frame)
+        self.subst_bigram_connectivity_label.grid(row=7, column=0, sticky="w")
+        self.subst_bigram_connectivity_textbox = self._create_widget(ctk.CTkTextbox, right_frame, height=100,
+                                                                      font=("Courier New", 9))
+        self.subst_bigram_connectivity_textbox.grid(row=8, column=0, pady=(0, 5), sticky="nsew")
+        self.subst_bigram_connectivity_textbox.configure(state="disabled")
 
         # Status label
         self.subst_status_label = self._create_widget(ctk.CTkLabel, tab, text="",
@@ -3966,14 +4151,19 @@ class StegoApp(ctk.CTk):
         
         # Get ignore punctuation setting
         ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
+        use_two_digit = bool(self.subst_two_digit_var.get())
 
         result = detokenize_apply_mapping(
             text, norm_mapping, 
-            use_two_digit_mode=bool(self.subst_two_digit_var.get()),
+            use_two_digit_mode=use_two_digit,
             ignore_punct=ignore_punct
         )
         self.subst_output_textbox.delete("1.0", tk.END)
         self.subst_output_textbox.insert("1.0", result)
+        
+        # Update bigram connectivity display
+        self.update_bigram_connectivity_display(text, norm_mapping, result, use_two_digit)
+        
         self.subst_status_label.configure(text=lang["subst_status_ok_apply"], text_color="green")
 
     def perform_subst_clear(self):
@@ -4172,12 +4362,14 @@ class StegoApp(ctk.CTk):
         
         # Apply ignore punctuation setting if enabled
         ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+        use_two_digit = bool(self.subst_two_digit_var.get())
+        
         if ignore_punct:
             # Re-apply with punctuation ignored for display
-            text = self.subst_input_textbox.get("1.0", tk.END).strip()
             plaintext = detokenize_apply_mapping(
                 text, mapping, 
-                use_two_digit_mode=bool(self.subst_two_digit_var.get()),
+                use_two_digit_mode=use_two_digit,
                 ignore_punct=True
             )
         
@@ -4196,6 +4388,9 @@ class StegoApp(ctk.CTk):
         self.perform_subst_analyze()
         # Підсвічування (використовує існуючий метод)
         self.highlight_mapping_confidence(plaintext, lang_code)
+        
+        # Update bigram connectivity display
+        self.update_bigram_connectivity_display(text, mapping, plaintext, use_two_digit)
 
         self.subst_status_label.configure(
             text=f"{lang_ui.get('subst_status_ok_auto','Auto replacement applied.')} | Score={score:.2f}",
@@ -4315,6 +4510,57 @@ class StegoApp(ctk.CTk):
             logger.error(f"Import TXT mapping failed: {e}")
             self.subst_status_label.configure(text=lang.get('subst_status_error_import_txt', "Invalid TXT file."),
                                               text_color="red")
+
+    def perform_subst_export_report(self):
+        """Export number→letter correspondence report with bigram connectivity to TXT or CSV."""
+        lang = LANG_STRINGS[self.current_lang.get()]
+        mapping = self.get_current_mapping()
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+        use_two_digit = bool(self.subst_two_digit_var.get())
+        ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
+        
+        # Get current plaintext
+        plaintext = self.subst_output_textbox.get("1.0", tk.END).strip()
+        if not plaintext:
+            # Generate if not available
+            norm_mapping = {k: (v.upper() if len(v) == 1 else v) for k, v in mapping.items() if k}
+            plaintext = detokenize_apply_mapping(text, norm_mapping, use_two_digit_mode=use_two_digit, ignore_punct=ignore_punct)
+        
+        try:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text Files", "*.txt"), ("CSV Files", "*.csv"), ("All files", "*.*")],
+                initialfile="mapping_report.txt"
+            )
+            if not path:
+                return
+            
+            # Determine format from extension
+            file_format = 'csv' if path.lower().endswith('.csv') else 'txt'
+            
+            export_mapping_report(mapping, text, plaintext, use_two_digit, path, format=file_format)
+            
+            self.subst_status_label.configure(text=lang.get("subst_status_ok_export_report", "Report exported."),
+                                              text_color="green")
+        except Exception as e:
+            logger.error(f"Export report failed: {e}")
+            self.subst_status_label.configure(text=lang.get('subst_status_error_export', "Export error"),
+                                              text_color="red")
+
+    def update_bigram_connectivity_display(self, text: str, mapping: dict, plaintext: str, use_two_digit: bool):
+        """Update the bigram connectivity textbox with current cipher and plaintext bigram tables."""
+        try:
+            cipher_table = compute_cipher_bigram_freq_table(text, mapping, use_two_digit, top_n=10)
+            plain_table = compute_plaintext_bigram_freq_table(plaintext, top_n=10)
+            
+            display_text = format_connectivity_table(cipher_table, plain_table)
+            
+            self.subst_bigram_connectivity_textbox.configure(state="normal")
+            self.subst_bigram_connectivity_textbox.delete("1.0", tk.END)
+            self.subst_bigram_connectivity_textbox.insert("1.0", display_text)
+            self.subst_bigram_connectivity_textbox.configure(state="disabled")
+        except Exception as e:
+            logger.error(f"Error updating bigram connectivity: {e}")
 
     # --- show/hide frames ---
     def hide_all_frames(self):
