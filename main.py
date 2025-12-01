@@ -1,3 +1,4 @@
+# ==== SECTION: Imports & Constants ====
 from __future__ import annotations
 import base64, binascii
 import hashlib
@@ -1008,21 +1009,23 @@ def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = N
     return matches
 
 
+# ==== SECTION: Substitution / Numeric Token Cipher ====
+
 # -------------------------
 # Substitution Cipher Helper Functions
 # -------------------------
 
-# Ukrainian letter frequencies (approximate values based on corpus analysis).
-# Source: Standard Ukrainian language frequency analysis; values normalized to sum to ~1.0.
-# Note: These are averages across typical literary/newspaper texts.
+# Ukrainian letter frequencies - user-provided values (percentages / 100)
+# Source: User-confirmed Ukrainian language frequency analysis
+# Note: Values are sorted by frequency (most frequent first)
 UKRAINIAN_LETTER_FREQ = [
-    ('О', 0.094), ('А', 0.073), ('Н', 0.066), ('І', 0.062), ('Е', 0.055),
-    ('И', 0.054), ('В', 0.052), ('Р', 0.047), ('Т', 0.045), ('С', 0.040),
-    ('К', 0.038), ('Л', 0.036), ('Д', 0.033), ('П', 0.031), ('М', 0.029),
-    ('У', 0.028), ('Я', 0.024), ('Б', 0.020), ('З', 0.019), ('Ь', 0.017),
-    ('Г', 0.016), ('Ч', 0.015), ('Й', 0.014), ('Х', 0.011), ('Ц', 0.009),
-    ('Ж', 0.008), ('Ш', 0.007), ('Ю', 0.006), ('Є', 0.005), ('Щ', 0.004),
-    ('Ф', 0.003), ('Ї', 0.002), ('Ґ', 0.001),
+    ('О', 0.1009), ('А', 0.0762), ('И', 0.0668), ('Н', 0.0635), ('І', 0.0545),
+    ('В', 0.0516), ('Е', 0.0484), ('Р', 0.0477), ('С', 0.0464), ('Т', 0.0455),
+    ('Л', 0.0397), ('К', 0.0325), ('М', 0.0324), ('У', 0.0272), ('Д', 0.0224),
+    ('П', 0.0220), ('Я', 0.0200), ('З', 0.0196), ('Б', 0.0162), ('Г', 0.0148),
+    ('Ч', 0.0141), ('Й', 0.0125), ('Х', 0.0103), ('Ж', 0.0083), ('Ц', 0.0073),
+    ('Є', 0.0058), ('Ю', 0.0045), ('Ф', 0.0031), ('Ш', 0.0030), ('Ї', 0.0022),
+    ('Щ', 0.0016), ('Ь', 0.0014),
 ]
 
 # English letter frequencies (approximate values based on standard English corpus).
@@ -1124,23 +1127,28 @@ DEFAULT_PUNCT_CHARSET = set([
 
 # Human-readable representation for UI display
 DEFAULT_PUNCT_DISPLAY = '/ ? ! , . : ; " \' ( ) [ ] { } - _'
+# Ukrainian label for punctuation ignore checkbox
+PUNCT_IGNORE_LABEL_UA = 'Ігнорувати пунктуацію (/ ? ! , . : ; " \' ( ) [ ] { } - _)'
 
 # Common UA bigrams for scoring (expanded set for bonuses)
+# Including user-specified bigrams: НА, НО, ТА, ЛИ, ПО, РО, ПР, ДО, КО, МО, ВО, НИ, НЕ, НІ, ТО, НУ, НЯ
 UA_COMMON_BIGRAMS = {
-    'на': 2.0, 'он': 1.8, 'ст': 2.0, 'пр': 1.8, 'ро': 1.7,
+    'на': 2.0, 'но': 1.8, 'ст': 2.0, 'пр': 1.8, 'ро': 1.7,
     'за': 1.6, 'та': 1.6, 'ли': 1.5, 'ні': 1.5, 'ко': 1.6,
-    'но': 1.6, 'ра': 1.5, 'по': 1.7, 'ва': 1.5, 'ен': 1.4,
+    'ра': 1.5, 'по': 1.7, 'ва': 1.5, 'ен': 1.4,
     'ти': 1.5, 'ан': 1.4, 'ов': 1.4, 'ор': 1.3, 'не': 1.5,
     'ла': 1.3, 'ін': 1.3, 'ка': 1.3, 'ом': 1.2, 'ин': 1.2,
     'ат': 1.2, 'ер': 1.2, 'іс': 1.1, 'то': 1.4, 'во': 1.3,
+    'до': 1.4, 'мо': 1.3, 'ни': 1.4, 'ну': 1.2, 'ня': 1.3,
 }
 
 # Common UA trigrams for scoring (bonuses)
+# Including user-specified: ЩО, ПРО, ПРИ, СТО, НИК, АНИ, ЕНН
 UA_COMMON_TRIGRAMS = {
-    'про': 2.5, 'при': 2.3, 'сто': 2.0, 'ник': 1.8, 'ани': 1.7,
+    'що': 2.5, 'про': 2.5, 'при': 2.3, 'сто': 2.0, 'ник': 1.8, 'ани': 1.7,
     'енн': 2.2, 'ств': 1.9, 'ові': 1.6, 'ост': 1.8, 'ого': 1.7,
     'ння': 2.0, 'тис': 1.5, 'ком': 1.5, 'ина': 1.6, 'ьки': 1.5,
-    'ати': 1.7, 'ити': 1.6, 'ова': 1.5, 'ськ': 1.8,  # removed duplicate 'ити'
+    'ати': 1.7, 'ити': 1.6, 'ова': 1.5, 'ськ': 1.8,
 }
 
 # Forbidden patterns with penalties (higher = worse)
@@ -1169,6 +1177,171 @@ def strip_punctuation(text: str, charset: Optional[set] = None) -> str:
     if charset is None:
         charset = DEFAULT_PUNCT_CHARSET
     return ''.join(c for c in text if c not in charset)
+
+
+# ----------------------------
+# Numeric Token Cipher Functions
+# ----------------------------
+
+def tokenize_numeric_cipher(text: str) -> List[Tuple[str, str]]:
+    """
+    Tokenize text for numeric cipher mode.
+    Splits runs of digits into 1-2 digit tokens greedily (longest-match-first).
+    For runs >2 digits, splits into pairs with trailing single if odd (e.g., '128' -> ['12','8']).
+    Punctuation and spaces are preserved as separate tokens.
+    
+    Returns list of (token, token_type) where token_type is:
+        'digit' - numeric token (1 or 2 digits)
+        'space' - space character
+        'punct' - punctuation character  
+        'other' - other characters (letters, etc.)
+    """
+    tokens: List[Tuple[str, str]] = []
+    i = 0
+    n = len(text)
+    
+    while i < n:
+        ch = text[i]
+        
+        if ch.isdigit():
+            # Collect all consecutive digits
+            j = i
+            while j < n and text[j].isdigit():
+                j += 1
+            digit_run = text[i:j]
+            
+            # Split into 2-digit tokens greedily, with trailing 1-digit if odd
+            k = 0
+            while k + 2 <= len(digit_run):
+                tokens.append((digit_run[k:k+2], 'digit'))
+                k += 2
+            if k < len(digit_run):
+                tokens.append((digit_run[k:], 'digit'))
+            
+            i = j
+        elif ch.isspace():
+            tokens.append((ch, 'space'))
+            i += 1
+        elif ch in DEFAULT_PUNCT_CHARSET:
+            tokens.append((ch, 'punct'))
+            i += 1
+        else:
+            tokens.append((ch, 'other'))
+            i += 1
+    
+    return tokens
+
+
+def numeric_token_frequency(tokens: List[Tuple[str, str]]) -> List[Tuple[str, int, float]]:
+    """
+    Compute frequency of digit tokens from tokenized text.
+    Returns list of (token, count, percentage) sorted by count descending.
+    Only considers 'digit' type tokens.
+    """
+    digit_tokens = [t for t, typ in tokens if typ == 'digit']
+    if not digit_tokens:
+        return []
+    
+    counter = Counter(digit_tokens)
+    total = len(digit_tokens)
+    result = []
+    for tok, count in counter.most_common():
+        pct = (count / total) * 100 if total > 0 else 0.0
+        result.append((tok, count, pct))
+    return result
+
+
+def numeric_token_bigrams(tokens: List[Tuple[str, str]], top_n: int = 20) -> List[Tuple[str, int, float]]:
+    """
+    Compute bigram frequency over consecutive digit tokens.
+    Returns list of (bigram_str, count, percentage) sorted by count descending.
+    Bigram format: 'tok1-tok2' for display.
+    """
+    digit_tokens = [t for t, typ in tokens if typ == 'digit']
+    if len(digit_tokens) < 2:
+        return []
+    
+    bigrams = [(digit_tokens[i], digit_tokens[i+1]) for i in range(len(digit_tokens) - 1)]
+    counter = Counter(bigrams)
+    total = len(bigrams)
+    
+    result = []
+    for (t1, t2), count in counter.most_common(top_n):
+        bg_str = f"{t1}-{t2}"
+        pct = (count / total) * 100 if total > 0 else 0.0
+        result.append((bg_str, count, pct))
+    return result
+
+
+def build_initial_numeric_mapping(token_freq: List[Tuple[str, int, float]], lang: str = 'ua') -> dict:
+    """
+    Build initial mapping from numeric tokens to Ukrainian letters based on frequency.
+    Assigns most frequent tokens to most frequent Ukrainian letters.
+    
+    Args:
+        token_freq: List of (token, count, percentage) from numeric_token_frequency
+        lang: Language code ('ua' for Ukrainian, 'en' for English)
+    
+    Returns:
+        dict mapping numeric tokens to uppercase letters
+    """
+    if lang == 'ua':
+        ref_letters = [letter for letter, _ in UKRAINIAN_LETTER_FREQ]
+    else:
+        ref_letters = [letter for letter, _ in ENGLISH_LETTER_FREQ]
+    
+    mapping = {}
+    for i, (token, _, _) in enumerate(token_freq):
+        if i < len(ref_letters):
+            mapping[token] = ref_letters[i]
+    
+    return mapping
+
+
+def detect_numeric_mode(text: str, threshold: float = 0.70) -> bool:
+    """
+    Auto-detect if text is in numeric cipher mode.
+    Returns True if >threshold of non-space characters are digits or punctuation delimiters.
+    """
+    non_space = [c for c in text if not c.isspace()]
+    if not non_space:
+        return False
+    
+    digit_or_punct = sum(1 for c in non_space if c.isdigit() or c in DEFAULT_PUNCT_CHARSET)
+    ratio = digit_or_punct / len(non_space)
+    return ratio > threshold
+
+
+def apply_numeric_mapping(tokens: List[Tuple[str, str]], mapping: dict, ignore_punct: bool = False) -> str:
+    """
+    Apply mapping to tokenized numeric cipher text.
+    
+    Args:
+        tokens: List of (token, token_type) from tokenize_numeric_cipher
+        mapping: dict mapping digit tokens to letters
+        ignore_punct: If True, exclude punctuation from output (spaces preserved)
+    
+    Returns:
+        Decoded plaintext string
+    """
+    out_parts = []
+    for tok, typ in tokens:
+        if typ == 'digit':
+            # Apply mapping if available
+            if tok in mapping and mapping[tok]:
+                out_parts.append(mapping[tok])
+            else:
+                out_parts.append(tok)  # Keep unmapped token
+        elif typ == 'space':
+            out_parts.append(tok)  # Always preserve spaces
+        elif typ == 'punct':
+            if not ignore_punct:
+                out_parts.append(tok)
+            # If ignore_punct, skip punctuation
+        else:
+            out_parts.append(tok)  # Keep other characters as-is
+    
+    return ''.join(out_parts)
 
 
 def compute_char_freq(text: str) -> List[Tuple[str, int, float]]:
@@ -1248,6 +1421,8 @@ def _map_char_with_case(c: str, mapping: dict, ignore_punct: bool = False, punct
 
     return c
 
+
+# ==== SECTION: Substitution Application ====
 
 def apply_substitution_mapping(text: str, mapping: dict, ignore_punct: bool = False) -> str:
     """
@@ -1572,6 +1747,8 @@ def compute_token_bigram_freq(tokens: List[Tuple[str, bool]], top_n: int = 20) -
     return result
 
 
+# ==== SECTION: Substitution UI Helpers ====
+
 def compute_cipher_bigram_freq_table(text: str, mapping: dict, use_two_digit: bool, top_n: int = 15) -> List[dict]:
     """
     Compute cipher numeric-token bigram frequency table with mapped plaintext bigrams and connectivity scores.
@@ -1710,6 +1887,44 @@ def format_connectivity_table(cipher_table: List[dict], plain_table: List[dict])
     return '\n'.join(lines)
 
 
+def export_number_letter_report(mapping: dict, token_freq: List[Tuple[str, int, float]], filepath: str, format: str = 'txt'):
+    """
+    Export number→letter correspondence report with token frequencies.
+    
+    Args:
+        mapping: dict mapping numeric tokens to letters
+        token_freq: List of (token, count, percentage) from numeric_token_frequency
+        filepath: Output file path
+        format: 'txt' or 'csv'
+    
+    Writes CSV/TXT with columns: token, letter, token_freq%, optional note placeholder
+    """
+    # Build token frequency lookup
+    freq_lookup = {tok: (cnt, pct) for tok, cnt, pct in token_freq}
+    
+    if format.lower() == 'csv':
+        lines = ['Token,Letter,Freq%,Note']
+        for token, letter in sorted(mapping.items()):
+            cnt, pct = freq_lookup.get(token, (0, 0.0))
+            lines.append(f'"{token}","{letter}",{pct:.2f},""')
+        content = '\n'.join(lines)
+    else:  # TXT format
+        lines = []
+        lines.append("=" * 50)
+        lines.append("NUMBER → LETTER MAPPING REPORT")
+        lines.append("=" * 50)
+        lines.append("")
+        lines.append(f"{'Token':8} {'Letter':8} {'Freq%':10} {'Note':10}")
+        lines.append("-" * 40)
+        for token, letter in sorted(mapping.items()):
+            cnt, pct = freq_lookup.get(token, (0, 0.0))
+            lines.append(f"{token:8} {letter:8} {pct:9.2f}% {'':10}")
+        content = '\n'.join(lines)
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
 def export_mapping_report(mapping: dict, text: str, plaintext: str, use_two_digit: bool, filepath: str, format: str = 'txt'):
     """
     Export number→letter correspondence report to file.
@@ -1784,6 +1999,8 @@ def deserialize_mapping(s: str) -> dict:
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON: {e}")
 
+# ==== SECTION: Substitution Scoring & Hillclimb ====
+
 def _apply_mapping_fast(text: str, mapping: dict) -> str:
     """Швидке застосування заміни (лише односимвольні ключі)."""
     if not mapping:
@@ -1801,6 +2018,144 @@ def _build_letter_freq_model(lang: str):
     if lang == 'ua':
         return ukr_letter_freq
     return en_letter_freq
+
+def _score_ukrainian_plain(plain: str, bigram_model: dict, letter_model: dict,
+                           smoothing: float = 1e-6) -> Tuple[float, dict]:
+    """
+    UA-aware scoring for substitution plaintext quality with detailed diagnostics.
+    
+    Incorporates user-provided scoring components:
+    - Chi-squared letter frequency penalty
+    - Bigram & trigram boosts (НА, НО, ЩО, ПРО, ПРИ, СТО, НИК, АНИ, ЕНН, ТА, ЛИ, ПО, РО, ПР, ДО, КО, МО, ВО, НИ, НЕ, НІ, ТО, НУ, НЯ)
+    - Consonant run penalties (4 light, ≥5 heavy)
+    - VV penalty, CV/VC rewards
+    - Forbidden repeats (ЬЬ, ЙЙ, same-letter ≥4)
+    - Word-start penalties (Ь heavy, Й strong, И/Є/Ю/Ї soft)
+    - Vowel ratio deviation penalty (target 0.41)
+    
+    Returns:
+        (score, diagnostics_dict) where diagnostics_dict contains:
+        - vowel_ratio: float
+        - bad_repeat_count: int
+        - max_consonant_run: int
+    """
+    filtered = [c.lower() for c in plain if c.isalpha()]
+    score = 0.0
+    
+    diagnostics = {
+        'vowel_ratio': 0.0,
+        'bad_repeat_count': 0,
+        'max_consonant_run': 0
+    }
+    
+    if not filtered:
+        return float('-inf'), diagnostics
+    
+    N = len(filtered)
+    counts = Counter(filtered)
+    
+    # 1. Chi-squared letter frequency penalty
+    chi2 = 0.0
+    for ltr, expected in letter_model.items():
+        obs = counts.get(ltr, 0)
+        exp = expected * N
+        if exp > 0:
+            chi2 += (obs - exp) ** 2 / exp
+    score -= 0.5 * chi2
+    
+    # 2. Bigram log-probabilities
+    bigrams = [''.join(pair) for pair in zip(filtered, filtered[1:])]
+    for bg in bigrams:
+        p = bigram_model.get(bg, smoothing)
+        score += math.log(p)
+    
+    # 3. Vowel ratio penalty (target 0.41)
+    vowel_count = sum(1 for c in filtered if c in UA_VOWELS or c.upper() in UA_VOWELS)
+    vowel_ratio = vowel_count / N if N > 0 else 0.5
+    diagnostics['vowel_ratio'] = vowel_ratio * 100  # Store as percentage
+    
+    ratio_deviation = abs(vowel_ratio - UA_VOWEL_RATIO_TARGET)
+    if ratio_deviation > UA_VOWEL_RATIO_TOLERANCE:
+        score -= (ratio_deviation - UA_VOWEL_RATIO_TOLERANCE) * 30.0
+    
+    # 4. Forbidden pattern penalties (ЬЬ, ЙЙ)
+    text_lower = ''.join(filtered)
+    for pattern, penalty in UA_FORBIDDEN_PATTERNS.items():
+        pattern_count = text_lower.count(pattern)
+        if pattern_count > 0:
+            score -= penalty * pattern_count
+    
+    # 4b. Repeated letter penalties (same letter ≥4 in a row)
+    bad_repeats = 0
+    current_repeat = 1
+    for i in range(1, len(filtered)):
+        if filtered[i] == filtered[i-1]:
+            current_repeat += 1
+        else:
+            if current_repeat >= 4:
+                bad_repeats += 1
+                score -= (current_repeat - 3) * 15.0
+            current_repeat = 1
+    if current_repeat >= 4:
+        bad_repeats += 1
+        score -= (current_repeat - 3) * 15.0
+    diagnostics['bad_repeat_count'] = bad_repeats
+    
+    # 4c. Consonant run penalties (4 light, ≥5 heavy)
+    max_cc_run = 0
+    cc_run = 0
+    for c in filtered:
+        if c in UA_CONSONANTS or c.upper() in UA_CONSONANTS:
+            cc_run += 1
+            max_cc_run = max(max_cc_run, cc_run)
+        else:
+            cc_run = 0
+    diagnostics['max_consonant_run'] = max_cc_run
+    
+    if max_cc_run >= 5:
+        score -= (max_cc_run - 4) * 12.0  # Heavy penalty
+    elif max_cc_run == 4:
+        score -= 3.0  # Light penalty
+    
+    # 5. Word-start penalties
+    words = plain.split()
+    for word in words:
+        if not word:
+            continue
+        first_char = word[0]
+        if first_char in UA_WORD_START_HEAVY_PENALTY:
+            score -= 25.0  # Ь cannot start a word
+        elif first_char in UA_WORD_START_STRONG_PENALTY:
+            score -= 10.0  # Й rarely starts words
+        elif first_char in UA_WORD_START_SOFT_PENALTY:
+            score -= 2.0   # soft penalty for less common starters
+    
+    # 6. Syllable shape rewards/penalties (CV = good, VC = ok, VV = bad)
+    def is_vowel(c):
+        return c in UA_VOWELS or c.upper() in UA_VOWELS
+    
+    for i in range(len(filtered) - 1):
+        c1_v = is_vowel(filtered[i])
+        c2_v = is_vowel(filtered[i+1])
+        if not c1_v and c2_v:  # CV pattern (consonant-vowel)
+            score += 0.3
+        elif c1_v and not c2_v:  # VC pattern
+            score += 0.15
+        elif c1_v and c2_v:  # VV pattern (less common)
+            score -= 0.2
+    
+    # 7. Common UA bigram bonuses
+    for bg in bigrams:
+        if bg in UA_COMMON_BIGRAMS:
+            score += UA_COMMON_BIGRAMS[bg]
+    
+    # 8. Common UA trigram bonuses
+    for i in range(len(filtered) - 2):
+        trigram = ''.join(filtered[i:i+3])
+        if trigram in UA_COMMON_TRIGRAMS:
+            score += UA_COMMON_TRIGRAMS[trigram]
+    
+    return score, diagnostics
 
 def _subst_score_plaintext(plain: str, bigram_model: dict, letter_model: dict,
                            smoothing: float = 1e-6, lang: str = 'ua') -> float:
@@ -2248,6 +2603,158 @@ def subst_hillclimb(cipher_text: str, lang: str = 'ua',
                 break
 
     return best_global_map, best_global_plain, best_global_score
+
+
+def hillclimb_numeric(cipher_text: str, lang: str = 'ua',
+                      iterations: int = 5000, restarts: int = 5,
+                      smoothing: float = 1e-6, temp_start: float = 1.0,
+                      temp_decay: float = 0.0003, seed: int | None = None,
+                      early_stop_threshold: int = 800,
+                      ignore_punct: bool = False) -> Tuple[dict, str, float, dict]:
+    """
+    Specialized Hill-Climb for numeric token cipher solving.
+    
+    Operates on numeric tokens only (1-2 digit groupings).
+    Uses multi-start strategy with:
+    - Frequency-based seed mapping
+    - Vowel swap variant
+    - Random initializations
+    
+    Features:
+    - UA-aware scoring with phonotactic penalties/bonuses
+    - Token-level swaps (not character-level)
+    - Early-stopping on stagnation (no improvement in >800 iterations per restart)
+    - Detailed diagnostics output
+    
+    Args:
+        cipher_text: Numeric cipher text
+        lang: Language code ('ua' for Ukrainian)
+        iterations: Max iterations per restart
+        restarts: Number of random restarts
+        smoothing: Smoothing parameter for scoring
+        temp_start: Initial temperature for simulated annealing
+        temp_decay: Temperature decay rate
+        seed: Random seed for reproducibility
+        early_stop_threshold: Stop if no improvement for this many iterations
+        ignore_punct: If True, exclude punctuation from analysis and output
+    
+    Returns:
+        (best_mapping, best_plaintext, best_score, diagnostics_dict)
+    """
+    if not cipher_text.strip():
+        return {}, "", float('-inf'), {}
+    
+    rng = random.Random(seed)
+    bigram_model = _build_bigram_model(lang)
+    letter_model = _build_letter_freq_model(lang)
+    
+    # Tokenize the cipher text
+    tokens = tokenize_numeric_cipher(cipher_text)
+    token_freq = numeric_token_frequency(tokens)
+    
+    if not token_freq:
+        return {}, cipher_text, float('-inf'), {}
+    
+    # Get unique tokens sorted by frequency
+    unique_tokens = [t for t, _, _ in token_freq]
+    
+    # Target letters
+    if lang == 'ua':
+        target_letters = [ltr for ltr, _ in UKRAINIAN_LETTER_FREQ]
+        ua_vowels_list = ['о', 'а', 'і', 'е', 'и', 'у', 'я', 'ю', 'є', 'ї']
+    else:
+        target_letters = [ltr for ltr, _ in ENGLISH_LETTER_FREQ]
+        ua_vowels_list = ['e', 'a', 'i', 'o', 'u']
+    
+    best_global_map = {}
+    best_global_score = float('-inf')
+    best_global_plain = ""
+    best_global_diagnostics = {}
+    
+    for r in range(restarts):
+        # Multi-start strategy
+        if r == 0:
+            # First restart: frequency-based mapping
+            base_map = build_initial_numeric_mapping(token_freq, lang)
+        elif r == 1:
+            # Second restart: vowel swap variant - swap two most frequent tokens with vowels
+            base_map = build_initial_numeric_mapping(token_freq, lang)
+            if len(unique_tokens) >= 2:
+                # Swap the two most frequent token mappings
+                k1, k2 = unique_tokens[0], unique_tokens[1]
+                if k1 in base_map and k2 in base_map:
+                    base_map[k1], base_map[k2] = base_map[k2], base_map[k1]
+        else:
+            # Other restarts: random permutation
+            base_map = {}
+            shuffled_letters = target_letters[:len(unique_tokens)]
+            rng.shuffle(shuffled_letters)
+            for i, tok in enumerate(unique_tokens):
+                if i < len(shuffled_letters):
+                    base_map[tok] = shuffled_letters[i]
+        
+        current_map = base_map.copy()
+        current_plain = apply_numeric_mapping(tokens, current_map, ignore_punct=ignore_punct)
+        
+        if lang == 'ua':
+            current_score, current_diag = _score_ukrainian_plain(current_plain, bigram_model, letter_model, smoothing)
+        else:
+            current_score = _subst_score_plaintext(current_plain, bigram_model, letter_model, smoothing, lang)
+            current_diag = {}
+        
+        temp = temp_start
+        stagnation_count = 0
+        
+        for it in range(iterations):
+            if len(current_map) < 2:
+                break
+            
+            # Selective swap: pick two tokens and swap their mappings
+            keys = list(current_map.keys())
+            k1, k2 = rng.sample(keys, 2)
+            
+            candidate_map = current_map.copy()
+            candidate_map[k1], candidate_map[k2] = candidate_map[k2], candidate_map[k1]
+            
+            candidate_plain = apply_numeric_mapping(tokens, candidate_map, ignore_punct=ignore_punct)
+            
+            if lang == 'ua':
+                candidate_score, candidate_diag = _score_ukrainian_plain(candidate_plain, bigram_model, letter_model, smoothing)
+            else:
+                candidate_score = _subst_score_plaintext(candidate_plain, bigram_model, letter_model, smoothing, lang)
+                candidate_diag = {}
+            
+            accept = False
+            if candidate_score > current_score:
+                accept = True
+                stagnation_count = 0
+            else:
+                # Stochastic acceptance for escaping local minima
+                delta = candidate_score - current_score
+                prob = math.exp(delta / max(temp, 1e-9))
+                if rng.random() < prob:
+                    accept = True
+                stagnation_count += 1
+            
+            if accept:
+                current_map = candidate_map
+                current_score = candidate_score
+                current_plain = candidate_plain
+                current_diag = candidate_diag
+                
+                if current_score > best_global_score:
+                    best_global_map = current_map.copy()
+                    best_global_score = current_score
+                    best_global_plain = current_plain
+                    best_global_diagnostics = current_diag
+            
+            temp = max(0.0001, temp - temp_decay)
+            
+            # Early stopping on stagnation
+            if stagnation_count >= early_stop_threshold:
+                break
+    
+    return best_global_map, best_global_plain, best_global_score, best_global_diagnostics
 
 
 if MATPLOTLIB_AVAILABLE:
@@ -3838,8 +4345,8 @@ class StegoApp(ctk.CTk):
         left_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
         left_frame.grid(row=1, column=0, rowspan=4, padx=(20, 10), pady=10, sticky="nsew")
         left_frame.grid_columnconfigure(0, weight=1)
-        left_frame.grid_rowconfigure(6, weight=1)
-        left_frame.grid_rowconfigure(9, weight=2)
+        left_frame.grid_rowconfigure(8, weight=1)
+        left_frame.grid_rowconfigure(11, weight=2)
 
         # Input textbox
         self.subst_input_label = self._create_widget(ctk.CTkLabel, left_frame)
@@ -3847,61 +4354,71 @@ class StegoApp(ctk.CTk):
         self.subst_input_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=100)
         self.subst_input_textbox.grid(row=1, column=0, pady=(0, 10), sticky="nsew")
 
-        # NEW: two-digit token mode checkbox
+        # NEW: Numeric mode checkbox (1-2 digit = letter)
+        self.subst_numeric_mode_var = ctk.BooleanVar(value=False)
+        self.subst_numeric_mode_checkbox = self._create_widget(
+            ctk.CTkCheckBox, left_frame,
+            text="Числовий режим (1–2 цифри = літера)",
+            variable=self.subst_numeric_mode_var,
+            command=self._on_numeric_mode_changed
+        )
+        self.subst_numeric_mode_checkbox.grid(row=2, column=0, pady=(5, 0), sticky="w")
+
+        # Two-digit token mode checkbox (legacy, now linked to numeric mode)
         self.subst_two_digit_var = ctk.BooleanVar(value=False)
         self.subst_two_digit_checkbox = self._create_widget(
             ctk.CTkCheckBox, left_frame,
             text="Multi-digit tokens (2-digit = 1 letter)",
             variable=self.subst_two_digit_var
         )
-        self.subst_two_digit_checkbox.grid(row=2, column=0, pady=(5, 0), sticky="w")
+        self.subst_two_digit_checkbox.grid(row=3, column=0, pady=(5, 0), sticky="w")
         
-        # NEW: Inline hint under multi-digit checkbox
+        # NEW: Inline hint under multi-digit checkbox (2-digit priority)
         self.subst_two_digit_hint = self._create_widget(
             ctk.CTkLabel, left_frame,
             text="Підказка: якщо у мапі є 7 і 78 → токен 78 має пріоритет.",
             font=ctk.CTkFont(size=10),
             text_color="gray"
         )
-        self.subst_two_digit_hint.grid(row=3, column=0, pady=(0, 5), sticky="w")
+        self.subst_two_digit_hint.grid(row=4, column=0, pady=(0, 5), sticky="w")
         
-        # NEW: Ignore punctuation checkbox
+        # Ignore punctuation checkbox with Ukrainian label
         self.subst_ignore_punct_var = ctk.BooleanVar(value=False)
         self.subst_ignore_punct_checkbox = self._create_widget(
             ctk.CTkCheckBox, left_frame,
-            text=f"Ignore punctuation ({DEFAULT_PUNCT_DISPLAY})",
+            text=PUNCT_IGNORE_LABEL_UA,
             variable=self.subst_ignore_punct_var
         )
-        self.subst_ignore_punct_checkbox.grid(row=4, column=0, pady=5, sticky="w")
+        self.subst_ignore_punct_checkbox.grid(row=5, column=0, pady=5, sticky="w")
 
         # Analyze button
         self.subst_analyze_btn = self._create_widget(ctk.CTkButton, left_frame, command=self.perform_subst_analyze)
-        self.subst_analyze_btn.grid(row=5, column=0, pady=5, sticky="ew")
+        self.subst_analyze_btn.grid(row=6, column=0, pady=5, sticky="ew")
 
         # Character/token frequency label and textbox
         self.subst_freq_chars_label = self._create_widget(ctk.CTkLabel, left_frame)
-        self.subst_freq_chars_label.grid(row=6, column=0, sticky="w")
+        self.subst_freq_chars_label.grid(row=7, column=0, sticky="w")
         self.subst_freq_chars_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=100,
                                                             font=("Courier New", 11))
-        self.subst_freq_chars_textbox.grid(row=7, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_freq_chars_textbox.grid(row=8, column=0, pady=(0, 10), sticky="nsew")
         self.subst_freq_chars_textbox.configure(state="disabled")
 
         # Bigram frequency label and textbox
         self.subst_freq_bigrams_label = self._create_widget(ctk.CTkLabel, left_frame)
-        self.subst_freq_bigrams_label.grid(row=8, column=0, sticky="w")
+        self.subst_freq_bigrams_label.grid(row=9, column=0, sticky="w")
         self.subst_freq_bigrams_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=130,
                                                               font=("Courier New", 11))
-        self.subst_freq_bigrams_textbox.grid(row=9, column=0, pady=(0, 5), sticky="nsew")
+        self.subst_freq_bigrams_textbox.grid(row=10, column=0, pady=(0, 5), sticky="nsew")
         self.subst_freq_bigrams_textbox.configure(state="disabled")
         
-        # NEW: Static UA bigrams note under bigram frequency area
+        # Static UA bigrams note under bigram frequency area
         self.subst_bigrams_note = self._create_widget(
             ctk.CTkLabel, left_frame,
             text="UA common: СТ, НО, НА, ПО, РА, НИ, КО, ТО, ПР, РО",
             font=ctk.CTkFont(size=10),
             text_color="gray"
         )
-        self.subst_bigrams_note.grid(row=10, column=0, pady=(0, 10), sticky="w")
+        self.subst_bigrams_note.grid(row=11, column=0, pady=(0, 10), sticky="w")
 
         # --- Right Column: Mapping Table & Output ---
         right_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
@@ -4084,6 +4601,25 @@ class StegoApp(ctk.CTk):
         if not mapping:
             self.add_mapping_row()
 
+    def _on_numeric_mode_changed(self):
+        """Handle numeric mode checkbox state change with auto-detection."""
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+        
+        if self.subst_numeric_mode_var.get():
+            # When numeric mode is enabled, also enable two-digit mode
+            self.subst_two_digit_var.set(True)
+        
+        # Auto-detect numeric mode if text present and checkbox just enabled
+        if text and self.subst_numeric_mode_var.get():
+            # Check if >70% digits/punctuation (auto-confirm)
+            is_numeric = detect_numeric_mode(text, threshold=0.70)
+            if not is_numeric:
+                # Show a note that it may not be a pure numeric cipher
+                self.subst_status_label.configure(
+                    text="Увага: текст може не бути чисто числовим шифром (<70% цифр).",
+                    text_color="orange"
+                )
+
     def perform_subst_analyze(self):
         """Analyze the input ciphertext for token/character and bigram frequencies."""
         lang = LANG_STRINGS[self.current_lang.get()]
@@ -4093,25 +4629,33 @@ class StegoApp(ctk.CTk):
             self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
             return
 
+        # Get mode settings
         use_two_digit = bool(self.subst_two_digit_var.get())
-        if use_two_digit:
-            tokens = tokenize_text_two_digit_mode(text)
+        use_numeric_mode = bool(self.subst_numeric_mode_var.get()) if hasattr(self, 'subst_numeric_mode_var') else False
+        ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
+        
+        # Strip punctuation from analysis if ignore_punct is enabled
+        analysis_text = strip_punctuation(text) if ignore_punct else text
+        
+        if use_numeric_mode or use_two_digit:
+            # Use new numeric tokenizer for analysis
+            tokens = tokenize_numeric_cipher(analysis_text)
             # Token frequency (digit tokens only)
-            freqs = compute_token_freq(tokens)
+            freqs = numeric_token_frequency(tokens)
             char_text = "Tok  Count   %\n" + "-" * 22 + "\n"
             for tok, cnt, pct in freqs[:30]:
                 char_text += f"{tok:4} {cnt:5}  {pct:5.1f}%\n"
             # Token bigrams
-            bg_freqs = compute_token_bigram_freq(tokens, top_n=15)
+            bg_freqs = numeric_token_bigrams(tokens, top_n=15)
             bigram_text = "TokTok  Count   %\n" + "-" * 24 + "\n"
             for bg, cnt, pct in bg_freqs:
                 bigram_text += f"{bg:6} {cnt:5}  {pct:5.1f}%\n"
         else:
-            char_freq = compute_char_freq(text)
+            char_freq = compute_char_freq(analysis_text)
             char_text = "Sym  Count   %\n" + "-" * 20 + "\n"
             for char, count, pct in char_freq[:30]:
                 char_text += f"{char:4} {count:5}  {pct:5.1f}%\n"
-            bigram_freq = compute_bigram_freq(text, top_n=15)
+            bigram_freq = compute_bigram_freq(analysis_text, top_n=15)
             bigram_text = "Bigram  Count   %\n" + "-" * 22 + "\n"
             for bg, count, pct in bigram_freq:
                 bigram_text += f"{bg:6} {count:5}  {pct:5.1f}%\n"
@@ -4306,6 +4850,7 @@ class StegoApp(ctk.CTk):
     def perform_subst_auto_replace(self):
         """
         Auto Replace with hillclimb.
+        In numeric mode, uses hillclimb_numeric for numeric-only pipeline.
         In two-digit mode, we generate mapping over digit tokens and apply token-aware rendering.
         Supports ignore punctuation mode.
         """
@@ -4319,6 +4864,7 @@ class StegoApp(ctk.CTk):
         lang_code = 'ua' if freq_lang_value == lang_ui.get("subst_lang_ua", "Українська") else 'en'
 
         use_two_digit = bool(self.subst_two_digit_var.get())
+        use_numeric_mode = bool(self.subst_numeric_mode_var.get()) if hasattr(self, 'subst_numeric_mode_var') else False
         ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
         
         self.subst_status_label.configure(text="⏳ Оптимізація (hillclimb)...", text_color="yellow")
@@ -4326,7 +4872,18 @@ class StegoApp(ctk.CTk):
 
         def worker():
             try:
-                if use_two_digit:
+                if use_numeric_mode:
+                    # Use specialized numeric hillclimb
+                    mapping, plaintext, score, diagnostics = hillclimb_numeric(
+                        text, lang=lang_code,
+                        iterations=5000, restarts=6,
+                        smoothing=1e-6, temp_start=1.0,
+                        temp_decay=0.00025, seed=None,
+                        early_stop_threshold=800,
+                        ignore_punct=ignore_punct
+                    )
+                    self.after(0, lambda: self._subst_auto_done_with_diagnostics(mapping, plaintext, score, diagnostics, lang_code))
+                elif use_two_digit:
                     # Build initial mapping from digit tokens
                     tokens = tokenize_text_two_digit_mode(text)
                     units_sorted = detect_cipher_symbols_tokens(tokens)
@@ -4379,6 +4936,43 @@ class StegoApp(ctk.CTk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _subst_auto_done_with_diagnostics(self, mapping, plaintext, score, diagnostics, lang_code):
+        """Handle completion of numeric hillclimb with diagnostics from the algorithm."""
+        lang_ui = LANG_STRINGS[self.current_lang.get()]
+        if not mapping:
+            self.subst_status_label.configure(text="Не вдалося побудувати заміну.", text_color="red")
+            return
+
+        # Update table
+        self.set_mapping_rows(mapping)
+        
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+        use_two_digit = bool(self.subst_two_digit_var.get())
+        use_numeric_mode = bool(self.subst_numeric_mode_var.get()) if hasattr(self, 'subst_numeric_mode_var') else False
+        
+        # Build result header with diagnostics
+        vowel_ratio = diagnostics.get('vowel_ratio', 0.0)
+        bad_repeats = diagnostics.get('bad_repeat_count', 0)
+        max_cc_run = diagnostics.get('max_consonant_run', 0)
+        header = f"Score={score:.2f}, Vowels={vowel_ratio:.1f}%, BadRepeats={bad_repeats}, MaxCCRun={max_cc_run}\n"
+        header += "-" * 50 + "\n"
+        
+        # Set result with header
+        self.subst_output_textbox.delete("1.0", tk.END)
+        self.subst_output_textbox.insert("1.0", header + plaintext)
+
+        # Run frequency analysis
+        self.perform_subst_analyze()
+        # Highlight confidence
+        self.highlight_mapping_confidence(plaintext, lang_code)
+        
+        # Update bigram connectivity display
+        self.update_bigram_connectivity_display(text, mapping, plaintext, use_two_digit or use_numeric_mode)
+
+        self.subst_status_label.configure(
+            text=f"{lang_ui.get('subst_status_ok_auto','Auto replacement applied.')} | Score={score:.2f}",
+            text_color="green"
+        )
 
     def _subst_auto_done(self, mapping, plaintext, score, lang_code):
         lang_ui = LANG_STRINGS[self.current_lang.get()]
