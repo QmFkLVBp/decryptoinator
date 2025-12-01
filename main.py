@@ -17,6 +17,18 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
+import math
+import random
+
+# NEW: matplotlib for charts
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # backend without display for saving
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    MATPLOTLIB_AVAILABLE = True
+except Exception:
+    MATPLOTLIB_AVAILABLE = False
 
 # Optional AES dependency (PyCryptodome)
 try:
@@ -27,7 +39,7 @@ try:
 except Exception:
     CRYPTO_AVAILABLE = False
 
-APP_VERSION = "1.6.4"
+APP_VERSION = "2.0.7" # Оновлено
 # Fixed raw URL path (removed invalid refs/heads)
 APP_LOGO_URL = "https://raw.githubusercontent.com/QmFkLVBp/decryptoinator/main/logo.png"
 
@@ -583,6 +595,8 @@ def sdes_decrypt_bytes(data: bytes, key10: int) -> bytes:
 
 # ---- AES: improved key handling, encrypt/decrypt with key-length detection ----
 import binascii
+
+
 def aes_prepare_key(key_input: str, prefer_bits: int | None = None) -> tuple[bytes, int, str]:
     s = (key_input or "").strip()
     if not s:
@@ -593,7 +607,7 @@ def aes_prepare_key(key_input: str, prefer_bits: int | None = None) -> tuple[byt
         try:
             kbytes = binascii.unhexlify(s)
             if len(kbytes) in valid_sizes:
-                return (kbytes, len(kbytes) * 8, f"hex ({len(kbytes)*8} bits)")
+                return (kbytes, len(kbytes) * 8, f"hex ({len(kbytes) * 8} bits)")
         except Exception:
             pass
     raw = s.encode("utf-8", errors="ignore")
@@ -640,7 +654,7 @@ def aes_prepare_key(key_input: str, prefer_bits: int | None = None) -> tuple[byt
         try:
             kbytes = binascii.unhexlify(s)
             if len(kbytes) in valid_sizes:
-                return (kbytes, len(kbytes) * 8, f"hex ({len(kbytes)*8} bits)")
+                return (kbytes, len(kbytes) * 8, f"hex ({len(kbytes) * 8} bits)")
         except Exception:
             pass
     raw = s.encode('utf-8', errors='ignore')
@@ -741,7 +755,9 @@ def aes_bruteforce_pin(cipher_b64: str, known_fragment: bytes = None, max_pin_le
                 continue
     return matches
 
+
 import logging
+
 logger = logging.getLogger("decrypto")
 if not logger.handlers:
     # простий файловий логер, якщо ще не створено
@@ -750,7 +766,9 @@ if not logger.handlers:
     logger.addHandler(fh)
     logger.setLevel(logging.DEBUG)
 
-def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int, iv_len: int, hasher=hashlib.md5) -> Tuple[bytes, bytes]:
+
+def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int, iv_len: int, hasher=hashlib.md5) -> Tuple[
+    bytes, bytes]:
     """
     Реалізація OpenSSL EVP_BytesToKey (MD5 variant).
     Повертає (key, iv). Використовується формою 'Salted__' + 8-byte salt + ciphertext.
@@ -764,6 +782,7 @@ def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int, iv_len: int, ha
     key = derived[:key_len]
     iv = derived[key_len:key_len + iv_len]
     return key, iv
+
 
 def openssl_aes_encrypt(plaintext: str, password: str, prefer_bits: Optional[int] = None) -> str:
     """
@@ -787,6 +806,7 @@ def openssl_aes_encrypt(plaintext: str, password: str, prefer_bits: Optional[int
     ct = cipher.encrypt(padded)
     payload = b"Salted__" + salt + ct
     return base64.b64encode(payload).decode('utf-8')
+
 
 def openssl_aes_decrypt(b64payload: str, password: str, prefer_bits: Optional[int] = None) -> str:
     """
@@ -818,6 +838,7 @@ def openssl_aes_decrypt(b64payload: str, password: str, prefer_bits: Optional[in
         raise ValueError(f"Decryption failed (padding/incorrect key): {e}")
     return pt.decode('utf-8', errors='replace')
 
+
 def aes_derive_key_from_password(password: str, bits: int = 128) -> bytes:
     """
     Простий derive для brute-force PIN: SHA256(password)[:bits//8].
@@ -825,6 +846,7 @@ def aes_derive_key_from_password(password: str, bits: int = 128) -> bytes:
     """
     h = hashlib.sha256(password.encode('utf-8')).digest()
     return h[: (bits // 8)]
+
 
 # ---- (A) Гнучкий AES-декодер: вставити після імпортів (перед класом StegoApp) ----
 def openssl_or_iv_decrypt(b64payload: str, password: str, prefer_bits: Optional[int] = None) -> tuple[str, str]:
@@ -855,7 +877,7 @@ def openssl_or_iv_decrypt(b64payload: str, password: str, prefer_bits: Optional[
             key, iv = evp_bytes_to_key(password.encode("utf-8"), salt, key_len, iv_len, hashlib.md5)
             cipher = AES.new(key, AES.MODE_CBC, iv=iv)
             pt = unpad(cipher.decrypt(ct), AES.block_size)
-            return pt.decode('utf-8', errors='replace'), f"OpenSSL-salted (MD5 EVP_BytesToKey), key_bits={key_len*8}"
+            return pt.decode('utf-8', errors='replace'), f"OpenSSL-salted (MD5 EVP_BytesToKey), key_bits={key_len * 8}"
     except Exception as e:
         # Не відразу фейлим — продовжимо спроби, але запишемо повідомлення
         openssl_err = str(e)
@@ -897,7 +919,9 @@ def openssl_or_iv_decrypt(b64payload: str, password: str, prefer_bits: Optional[
     if openssl_err:
         msg_parts.append(f"OpenSSL attempt failed: {openssl_err}")
     msg_parts.append(f"IV-prefixed attempt failed: {iv_err}")
-    raise ValueError("Input is not OpenSSL salted format and IV-prefixed attempts failed. Details: " + " | ".join(msg_parts))
+    raise ValueError(
+        "Input is not OpenSSL salted format and IV-prefixed attempts failed. Details: " + " | ".join(msg_parts))
+
 
 def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = None,
                             max_pin_length: int = 4, prefer_bits: Optional[int] = None,
@@ -943,7 +967,8 @@ def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = N
                 for bits in order:
                     try:
                         key_len = bits // 8
-                        key, iv = evp_bytes_to_key(candidate.encode('utf-8'), salt, key_len, AES.block_size, hashlib.md5)
+                        key, iv = evp_bytes_to_key(candidate.encode('utf-8'), salt, key_len, AES.block_size,
+                                                   hashlib.md5)
                         cipher = AES.new(key, AES.MODE_CBC, iv=iv)
                         pt = unpad(cipher.decrypt(ct), AES.block_size)
                         # success
@@ -975,6 +1000,7 @@ def aes_bruteforce_password(cipher_b64: str, known_fragment: Optional[bytes] = N
 
     # otherwise cannot attempt
     return matches
+
 
 # -------------------------
 # Substitution Cipher Helper Functions
@@ -1100,25 +1126,73 @@ def compute_bigram_freq(text: str, top_n: int = 20) -> List[Tuple[str, int, floa
 
 def apply_substitution_mapping(text: str, mapping: dict) -> str:
     """
-    Apply substitution mapping to text using longest-match-first replacement.
-    mapping: dict of {cipher_symbol: plain_symbol}
-    Replaces longest matching keys first to avoid partial overlap issues.
-    Skips empty cipher keys and empty plain values.
+    Character-mode mapping (single-char keys).
+    Note: For numeric tokens (1- or 2-digit), use apply_mapping_mixed_tokens.
     """
     if not mapping:
         return text
-    # Filter out empty keys and empty plain values (use explicit check to preserve '0' etc)
-    valid_mapping = {k: v for k, v in mapping.items() if k != '' and v != ''}
-    if not valid_mapping:
+    # Keep only single-character keys for this mode
+    char_map = {k: v for k, v in mapping.items() if len(k) == 1}
+    if not char_map:
         return text
-    # Sort keys by length descending for longest-match-first
-    sorted_keys = sorted(valid_mapping.keys(), key=len, reverse=True)
-    result = text
-    for key in sorted_keys:
-        if key in result:
-            result = result.replace(key, valid_mapping[key])
-    return result
+    table = str.maketrans(char_map)
+    return text.translate(table)
 
+# NEW: Mixed tokenization — supports 1- and 2-digit tokens in the same text
+def tokenize_digits_with_mapping(text: str, mapping_keys: set[str]) -> List[Tuple[str, bool]]:
+    """
+    Tokenize digits in text using longest-match-first against mapping keys.
+    - If both 1-digit and 2-digit tokens exist in mapping_keys, prefer 2-digit when possible.
+    - Non-digit characters kept as single tokens; whitespace/punctuation preserved.
+    Returns list of (token, is_digit_token).
+    """
+    tokens: List[Tuple[str, bool]] = []
+    i = 0
+    n = len(text)
+    # speed: precompute whether we have 2-digit numeric keys
+    has_two_digit_keys = any(k.isdigit() and len(k) == 2 for k in mapping_keys)
+    has_one_digit_keys = any(k.isdigit() and len(k) == 1 for k in mapping_keys)
+    while i < n:
+        ch = text[i]
+        if ch.isdigit():
+            # try longest match (2-digit) if available
+            if has_two_digit_keys and (i + 1 < n) and text[i+1].isdigit():
+                pair = text[i:i+2]
+                if pair in mapping_keys:
+                    tokens.append((pair, True))
+                    i += 2
+                    continue
+            # fallback to single digit if mapped or just keep digit
+            if has_one_digit_keys and ch in mapping_keys:
+                tokens.append((ch, True))
+            else:
+                tokens.append((ch, True))
+            i += 1
+        else:
+            tokens.append((ch, False))
+            i += 1
+    return tokens
+
+def apply_mapping_mixed_tokens(text: str, mapping: dict) -> str:
+    """
+    Apply mapping with support for mixed numeric tokens (1 or 2 digits).
+    - Longest-match-first for digits based on provided mapping keys.
+    - Non-digit chars replaced only if direct 1-char key exists (optional).
+    """
+    if not mapping:
+        return text
+    keys = set(mapping.keys())
+    tokens = tokenize_digits_with_mapping(text, keys)
+    out_parts: List[str] = []
+    for tok, is_digit in tokens:
+        if is_digit and tok in mapping and mapping[tok] != '':
+            out_parts.append(mapping[tok])
+        elif (not is_digit) and len(tok) == 1 and tok in mapping and mapping[tok] != '':
+            # allow character mapping too
+            out_parts.append(mapping[tok])
+        else:
+            out_parts.append(tok)
+    return ''.join(out_parts)
 
 def detect_cipher_symbols(text: str) -> List[str]:
     """
@@ -1133,43 +1207,25 @@ def detect_cipher_symbols(text: str) -> List[str]:
     return [char for char, _ in counter.most_common()]
 
 
-def suggest_mapping_by_frequency(text: str, lang: str, limit: int = None) -> dict:
+def suggest_mapping_by_frequency(units: List[str], unit_freq: dict, lang: str, limit: Optional[int] = None) -> dict:
     """
-    Smart brute-force suggestion: match cipher symbols to language baseline.
-    
-    This function:
-    1. Detects all distinct cipher symbols in the text
-    2. Sorts them by frequency
-    3. Maps to the reference language letters by frequency order
-    4. Uses bigram context hints to adjust high-confidence pairs
-    
-    lang: 'ua' or 'en'
-    limit: max symbols to map (None = all detected symbols, capped at 100 for performance)
-    Returns dict of {cipher_symbol: suggested_letter}
+    Map cipher units (characters or tokens) by frequency to target language letters.
     """
-    # Detect and sort cipher symbols by frequency
-    cipher_symbols = detect_cipher_symbols(text)
-    if not cipher_symbols:
-        return {}
-    
-    # Get reference letter frequencies for the language
     if lang == 'ua':
         ref_letters = [letter for letter, _ in UKRAINIAN_LETTER_FREQ]
     else:
         ref_letters = [letter for letter, _ in ENGLISH_LETTER_FREQ]
-    
-    # Determine how many symbols to map (cap for performance)
     if limit is None:
-        num_to_map = min(len(cipher_symbols), MAX_CIPHER_SYMBOLS)
+        num_to_map = min(len(units), MAX_CIPHER_SYMBOLS)
     else:
-        num_to_map = min(limit, len(cipher_symbols), MAX_CIPHER_SYMBOLS)
-    
-    # Initial mapping: match by frequency order
+        num_to_map = min(limit, len(units), MAX_CIPHER_SYMBOLS)
+    # Sort units by frequency
+    sorted_units = sorted(unit_freq.items(), key=lambda x: x[1], reverse=True)
     mapping = {}
-    for i in range(num_to_map):
+    for i in range(min(num_to_map, len(sorted_units))):
+        unit = sorted_units[i][0]
         if i < len(ref_letters):
-            mapping[cipher_symbols[i]] = ref_letters[i]
-    
+            mapping[unit] = ref_letters[i]
     return mapping
 
 
@@ -1197,7 +1253,7 @@ def compare_frequencies(cipher_freq: dict, lang_freq: dict) -> dict:
     cipher_sorted = sorted(cipher_freq.items(), key=lambda x: x[1], reverse=True)
     # Sort language letters by frequency (descending)
     lang_sorted = sorted(lang_freq.items(), key=lambda x: x[1], reverse=True)
-    
+
     mapping = {}
     for i, (cipher_sym, _) in enumerate(cipher_sorted):
         if i < len(lang_sorted):
@@ -1210,96 +1266,154 @@ def refine_with_bigrams(text: str, mapping: dict, bigrams: dict, conn_matrix: di
     Refine a mapping using bigram frequencies and connectivity scoring.
     Analyzes the ciphertext bigrams, applies the current mapping, and adjusts
     mappings based on how well they produce common target language bigrams.
-    
+
     Returns a refined mapping dict.
     """
     if not mapping or not text:
         return mapping
-    
+
     # Compute ciphertext bigrams (lowercase)
     filtered = [c.lower() for c in text if c.isalnum()]
     if len(filtered) < 2:
         return mapping
-    
+
     cipher_bigrams = Counter([''.join(pair) for pair in zip(filtered, filtered[1:])])
-    
+
     # Score the current mapping based on how well it produces common bigrams
     refined = dict(mapping)
-    
+
     # For each pair of cipher symbols that appear together frequently,
     # check if their mapped values form a common bigram in the target language
     top_cipher_bigrams = cipher_bigrams.most_common(MAX_BIGRAMS_TO_ANALYZE)
-    
+
     for cipher_bg, count in top_cipher_bigrams:
         if len(cipher_bg) != 2:
             continue
         c1, c2 = cipher_bg[0], cipher_bg[1]
-        
+
         # Get current mapped values
         m1 = refined.get(c1, c1)
         m2 = refined.get(c2, c2)
         mapped_bg = (m1 + m2).lower()
-        
+
         # Check connectivity score
         conn_score = conn_matrix.get(mapped_bg, 0)
         bigram_score = bigrams.get(mapped_bg, 0)
-        
+
         # If the mapped bigram is common, increase confidence (no change needed)
         # If not, this could indicate a need for swap, but we keep it simple
         # Advanced: could try swapping mappings to improve bigram match rate
-        
+
     return refined
 
 
 def auto_suggest_substitution(text: str, lang: str) -> dict:
     """
     AutoSuggest pipeline for monoalphabetic substitution cipher.
-    
-    Steps:
-    a) Detect cipher symbols (existing detect_cipher_symbols)
-    b) Compute char freq and bigram freq on ciphertext
-    c) Build a base mapping via frequency alignment (compare_frequencies)
-    d) Refine mapping with bigrams and connectivity (refine_with_bigrams)
-    e) Return suggested mapping
-    
-    lang: 'ua' or 'en' for target language
+    (Старий базовий варіант залишено для швидкого наближення; глибший hillclimb нижче.)
     """
     if not text or not text.strip():
         return {}
-    
-    # a) Detect cipher symbols (limit for performance)
     cipher_symbols = detect_cipher_symbols(text)
     if not cipher_symbols:
         return {}
     cipher_symbols = cipher_symbols[:MAX_CIPHER_SYMBOLS]
-    
-    # b) Compute cipher frequencies (lowercase)
     cipher_freq = compute_cipher_frequencies_lower(text)
-    
-    # c) Get language frequency data
     if lang == 'ua':
         lang_freq = ukr_letter_freq
         bigrams = ukr_bigrams
     else:
         lang_freq = en_letter_freq
         bigrams = en_bigrams
-    
-    # d) Build base mapping via frequency comparison
     base_mapping = compare_frequencies(cipher_freq, lang_freq)
-    
-    # e) Refine with bigrams and connectivity
     refined_mapping = refine_with_bigrams(text, base_mapping, bigrams, connectivity_matrix)
-    
-    # Convert back to original case if needed (match original cipher symbols)
     final_mapping = {}
     for orig_sym in cipher_symbols:
         lower_sym = orig_sym.lower()
         if lower_sym in refined_mapping:
-            # Use uppercase letter for result to match Ukrainian/English uppercase convention
             final_mapping[orig_sym] = refined_mapping[lower_sym].upper()
-    
     return final_mapping
 
+def tokenize_text_two_digit_mode(text: str) -> List[Tuple[str, bool]]:
+    """
+    Tokenize ciphertext so that sequences of digits are grouped into 2-digit tokens.
+    Returns list of (token, is_digit_token).
+    Non-digit characters are kept as single-character tokens.
+    Spaces are preserved as separate non-token entries for reconstruction.
+    """
+    tokens: List[Tuple[str, bool]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch.isdigit():
+            j = i
+            while j < n and text[j].isdigit():
+                j += 1
+            run = text[i:j]
+            k = 0
+            while k + 2 <= len(run):
+                tokens.append((run[k:k+2], True))
+                k += 2
+            if k < len(run):
+                tokens.append((run[k], True))
+            i = j
+        else:
+            # Preserve whitespace and punctuation as tokens (non-digit)
+            tokens.append((ch, False))
+            i += 1
+    return tokens
+
+def detokenize_apply_mapping(text: str, mapping: dict, use_two_digit_mode: bool) -> str:
+    """
+    Apply mapping either:
+      - character mode: use apply_substitution_mapping (only single-char keys)
+      - two-digit token mode: replace only full 2-digit digit tokens by mapping values.
+    Punctuation and spaces are preserved as-is.
+    """
+    if not mapping:
+        return text
+    if not use_two_digit_mode:
+        # Character mode
+        return apply_substitution_mapping(text, mapping)
+
+    # Two-digit token mode
+    tokens = tokenize_text_two_digit_mode(text)
+    out_parts: List[str] = []
+    for tok, is_digit in tokens:
+        if is_digit and tok in mapping and mapping[tok]:
+            out_parts.append(mapping[tok])
+        else:
+            out_parts.append(tok)
+    return ''.join(out_parts)
+
+def compute_token_freq(tokens: List[Tuple[str, bool]]) -> List[Tuple[str, int, float]]:
+    """Frequency of digit tokens only in two-digit mode."""
+    digit_tokens = [t for t, is_digit in tokens if is_digit]
+    if not digit_tokens:
+        return []
+    counter = Counter(digit_tokens)
+    total = len(digit_tokens)
+    return [(tok, cnt, (cnt / total) * 100 if total else 0.0) for tok, cnt in counter.most_common()]
+
+def compute_token_bigram_freq(tokens: List[Tuple[str, bool]], top_n: int = 20) -> List[Tuple[str, int, float]]:
+    """Bigram frequencies over consecutive digit tokens only."""
+    digit_tokens = [t for t, is_digit in tokens if is_digit]
+    if len(digit_tokens) < 2:
+        return []
+    bigrams = ['{}{}'.format(a, b) for a, b in zip(digit_tokens, digit_tokens[1:])]
+    counter = Counter(bigrams)
+    total = len(bigrams)
+    result = []
+    for bg, count in counter.most_common(top_n):
+        pct = (count / total) * 100 if total > 0 else 0.0
+        result.append((bg, count, pct))
+    return result
+
+def detect_cipher_symbols_tokens(tokens: List[Tuple[str, bool]]) -> List[str]:
+    """Return distinct digit tokens sorted by frequency."""
+    counter = Counter([t for t, is_digit in tokens if is_digit])
+    return [tok for tok, _ in counter.most_common()]
 
 def serialize_mapping(mapping: dict) -> str:
     """Serialize mapping dict to JSON string."""
@@ -1320,6 +1434,243 @@ def deserialize_mapping(s: str) -> dict:
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON: {e}")
 
+def _apply_mapping_fast(text: str, mapping: dict) -> str:
+    """Швидке застосування заміни (лише односимвольні ключі)."""
+    if not mapping:
+        return text
+    table = str.maketrans(mapping)
+    return text.translate(table)
+
+def _build_bigram_model(lang: str):
+    """Повертає bigram частоти (у нижньому регістрі)."""
+    if lang == 'ua':
+        return ukr_bigrams
+    return en_bigrams
+
+def _build_letter_freq_model(lang: str):
+    if lang == 'ua':
+        return ukr_letter_freq
+    return en_letter_freq
+
+def _subst_score_plaintext(plain: str, bigram_model: dict, letter_model: dict,
+                           smoothing: float = 1e-6) -> float:
+    """
+    Score = лог-сума bigram ймовірностей + (мінус) chi2 за літери.
+    """
+    filtered = [c.lower() for c in plain if c.isalpha()]
+    # Біграми
+    bigrams = [''.join(pair) for pair in zip(filtered, filtered[1:])]
+    score = 0.0
+    for bg in bigrams:
+        p = bigram_model.get(bg, smoothing)
+        score += math.log(p)
+    # Частоти літер (χ²)
+    if filtered:
+        counts = Counter(filtered)
+        N = len(filtered)
+        chi2 = 0.0
+        for ltr, expected in letter_model.items():
+            obs = counts.get(ltr, 0)
+            exp = expected * N
+            if exp > 0:
+                chi2 += (obs - exp) ** 2 / exp
+        # Менший chi2 = краще → віднімаємо
+        score -= 0.5 * chi2
+    return score
+
+def _random_initial_mapping(cipher_symbols: list, target_letters: list, rng: random.Random) -> dict:
+    """
+    Створює випадковий початковий mapping (букви тупо переставляються).
+    """
+    m = {}
+    shuffled = target_letters[:]
+    rng.shuffle(shuffled)
+    limit = min(len(cipher_symbols), len(shuffled))
+    for i in range(limit):
+        m[cipher_symbols[i]] = shuffled[i]
+    return m
+
+def _initial_frequency_mapping(cipher_symbols: list, cipher_freq: dict, letter_model: dict) -> dict:
+    """
+    Початковий mapping за частотами (cipher freq desc → letter freq desc).
+    """
+    c_sorted = sorted(cipher_freq.items(), key=lambda x: x[1], reverse=True)
+    l_sorted = sorted(letter_model.items(), key=lambda x: x[1], reverse=True)
+    mapping = {}
+    for i, (sym, _) in enumerate(c_sorted):
+        if i < len(l_sorted):
+            mapping[sym] = l_sorted[i][0].upper()
+    return mapping
+
+def _refine_mapping_via_swaps(mapping: dict, rng: random.Random) -> dict:
+    """Випадково міняє місцями дві літери в mapping (для hillclimb)."""
+    if len(mapping) < 2:
+        return mapping
+    keys = list(mapping.keys())
+    k1, k2 = rng.sample(keys, 2)
+    new_map = mapping.copy()
+    new_map[k1], new_map[k2] = new_map[k2], new_map[k1]
+    return new_map
+
+def subst_hillclimb(cipher_text: str, lang: str = 'ua',
+                    iterations: int = 5000, restarts: int = 5,
+                    smoothing: float = 1e-6, temp_start: float = 1.0,
+                    temp_decay: float = 0.0003, seed: int | None = None) -> tuple[dict, str, float]:
+    """
+    Hill-Climb + Simulated Annealing для пошуку кращої заміни.
+    Повертає (best_mapping, best_plaintext, best_score).
+    """
+    if not cipher_text.strip():
+        return {}, "", float('-inf')
+
+    rng = random.Random(seed)
+    bigram_model = _build_bigram_model(lang)
+    letter_model = _build_letter_freq_model(lang)
+
+    cipher_symbols = detect_cipher_symbols(cipher_text)
+    cipher_symbols = cipher_symbols[:MAX_CIPHER_SYMBOLS]
+    cipher_freq = compute_cipher_frequencies_lower(cipher_text)
+
+    # Набір можливих цільових літер (скорочуємо до кількості символів)
+    if lang == 'ua':
+        target_letters_order = [ltr.lower() for ltr, _ in UKRAINIAN_LETTER_FREQ]
+    else:
+        target_letters_order = [ltr.lower() for ltr, _ in ENGLISH_LETTER_FREQ]
+    target_letters_order = target_letters_order[:len(cipher_symbols)]
+
+    best_global_map = {}
+    best_global_score = float('-inf')
+    best_global_plain = ""
+
+    for r in range(restarts):
+        # Початковий mapping: частотний + невеликий випадковий шум
+        base_map = _initial_frequency_mapping(cipher_symbols, cipher_freq, letter_model)
+        # Доповнити якщо не всі символи покриті
+        used_letters = set(l.lower() for l in base_map.values())
+        for sym in cipher_symbols:
+            if sym not in base_map:
+                for ltr in target_letters_order:
+                    if ltr not in used_letters:
+                        base_map[sym] = ltr.upper()
+                        used_letters.add(ltr)
+                        break
+
+        current_map = base_map
+        current_plain = apply_substitution_mapping(cipher_text, current_map)
+        current_score = _subst_score_plaintext(current_plain, bigram_model, letter_model, smoothing)
+
+        temp = temp_start
+
+        for it in range(iterations):
+            candidate_map = _refine_mapping_via_swaps(current_map, rng)
+            candidate_plain = apply_substitution_mapping(cipher_text, candidate_map)
+            candidate_score = _subst_score_plaintext(candidate_plain, bigram_model, letter_model, smoothing)
+
+            accept = False
+            if candidate_score > current_score:
+                accept = True
+            else:
+                # Ймовірнісне прийняття гіршого (simulated annealing)
+                delta = candidate_score - current_score
+                prob = math.exp(delta / max(temp, 1e-9))
+                if rng.random() < prob:
+                    accept = True
+
+            if accept:
+                current_map = candidate_map
+                current_score = candidate_score
+                current_plain = candidate_plain
+
+                if current_score > best_global_score:
+                    best_global_map = current_map
+                    best_global_score = current_score
+                    best_global_plain = current_plain
+
+            temp = max(0.0001, temp - temp_decay)
+
+    return best_global_map, best_global_plain, best_global_score
+
+
+if MATPLOTLIB_AVAILABLE:
+    def create_and_render_chart(freq_items: List[Tuple[str, int, float]], title: str, palette: dict) -> Figure:
+        """Helper to create a matplotlib bar chart figure."""
+
+        fig = Figure(figsize=(4, 3), dpi=100)
+        ax = fig.add_subplot(111)
+
+        # Limit to top 30/20 items for plotting
+        if "Char" in title or "Символ" in title:
+            freq_items = freq_items[:30]
+        elif "Bigram" in title or "Біграм" in title:
+            freq_items = freq_items[:20]
+
+        units = [u for (u, _, _) in freq_items]
+        counts = [c for (_, c, _) in freq_items]
+
+        # Use theme colors
+        app_bg = palette.get('app_bg', 'gray')
+        frame_bg = palette.get('frame_bg', 'white')
+        button_fg = palette.get('button_fg', 'lightblue')
+        text_color = palette.get('text_color', 'black')
+
+        # Set figure colors
+        fig.patch.set_facecolor(frame_bg)
+        ax.set_facecolor(app_bg)
+        ax.tick_params(colors=text_color)
+        ax.yaxis.label.set_color(text_color)
+        ax.xaxis.label.set_color(text_color)
+        ax.title.set_color(text_color)
+
+        # Bar chart
+        ax.bar(units, counts, color=button_fg)
+        ax.set_title(title)
+        ax.set_xlabel('Unit')
+        ax.set_ylabel('Count')
+        ax.tick_params(axis='x', rotation=60, labelsize=8)
+        fig.tight_layout()
+        return fig
+else:
+    def create_and_render_chart(*args, **kwargs):
+        return None
+
+def _use_mixed_token_mode(self, mapping: dict) -> bool:
+    """Checks if mapping contains both 1-digit and 2-digit numeric keys."""
+    has_two_digit_num = any(k.isdigit() and len(k) == 2 for k in mapping)
+    has_one_digit_num = any(k.isdigit() and len(k) == 1 for k in mapping)
+    return has_two_digit_num and has_one_digit_num
+
+def _render_subst_charts(self, char_freq, bigram_freq):
+    """Creates and embeds the frequency charts."""
+    if not MATPLOTLIB_AVAILABLE:
+        return
+
+    lang = LANG_STRINGS[self.current_lang.get()]
+    current_palette = self.app_settings # Assuming app_settings holds the current theme palette
+
+    # Clear old canvases
+    for canvas in [self.subst_char_canvas, self.subst_bigram_canvas]:
+        if canvas and canvas.get_tk_widget().winfo_exists():
+            canvas.get_tk_widget().destroy()
+
+    # 1. Character Chart
+    self.subst_char_fig = create_and_render_chart(char_freq, lang["subst_freq_chars_label"], current_palette)
+    if self.subst_char_fig:
+        self.subst_char_canvas = FigureCanvasTkAgg(self.subst_char_fig, master=self.subst_freq_chars_frame)
+        self.subst_char_canvas.draw()
+        self.subst_char_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.subst_freq_chars_textbox.grid_remove() # Hide textbox if chart is shown
+    else:
+        self.subst_freq_chars_textbox.grid() # Show textbox fallback
+
+    # 2. Bigram Chart
+    self.subst_bigram_fig = create_and_render_chart(bigram_freq, lang["subst_freq_bigrams_label"], current_palette)
+    if self.subst_bigram_fig:
+        self.subst_bigram_canvas = FigureCanvasTkAgg(self.subst_bigram_fig, master=self.subst_freq_bigrams_frame)
+        self.subst_bigram_canvas.draw()
+        self.subst_bigram_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.subst_freq_bigrams_textbox.grid_remove() # Hide textbox if chart is shown
+    else:
+        self.subst_freq_bigrams_textbox.grid() # Show textbox fallback
 
 class StegoApp(ctk.CTk):
     def __init__(self):
@@ -1339,6 +1690,11 @@ class StegoApp(ctk.CTk):
         self.lsb_image_path = None
         self.picker_pil_image = None
         self.ela_image_path = None
+
+        self.subst_char_fig = None
+        self.subst_char_canvas = None
+        self.subst_bigram_fig = None
+        self.subst_bigram_canvas = None
 
         # PIL caches
         self.xor_pil1 = None
@@ -1444,7 +1800,8 @@ class StegoApp(ctk.CTk):
         self.ela_button = self._create_widget(ctk.CTkButton, self.nav_frame, command=self.show_ela_frame, anchor="w")
         self.ela_button.grid(row=8, column=0, padx=20, pady=5, sticky="ew")
 
-        self.subst_button = self._create_widget(ctk.CTkButton, self.nav_frame, command=self.show_subst_frame, anchor="w")
+        self.subst_button = self._create_widget(ctk.CTkButton, self.nav_frame, command=self.show_subst_frame,
+                                                anchor="w")
         self.subst_button.grid(row=9, column=0, padx=20, pady=5, sticky="ew")
 
         self.nav_frame.grid_rowconfigure(10, weight=1)
@@ -1484,17 +1841,28 @@ class StegoApp(ctk.CTk):
             self.app_logo_label.configure(image=None, text="🔒", font=ctk.CTkFont(size=48))
 
     def setup_content_frames(self):
-        self.xor_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.xor_frame.is_themeable = False
-        self.lsb_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.lsb_frame.is_themeable = False
-        self.picker_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.picker_frame.is_themeable = False
-        self.vigenere_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.vigenere_frame.is_themeable = False
-        self.base64_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.base64_frame.is_themeable = False
-        self.ela_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.ela_frame.is_themeable = False
-        self.aes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.aes_frame.is_themeable = False
-        self.sdes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.sdes_frame.is_themeable = False
-        self.subst_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.subst_frame.is_themeable = False
-        self.settings_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.settings_frame.is_themeable = False
-        self.about_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent"); self.about_frame.is_themeable = False
+        self.xor_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.xor_frame.is_themeable = False
+        self.lsb_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.lsb_frame.is_themeable = False
+        self.picker_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.picker_frame.is_themeable = False
+        self.vigenere_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.vigenere_frame.is_themeable = False
+        self.base64_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.base64_frame.is_themeable = False
+        self.ela_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.ela_frame.is_themeable = False
+        self.aes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.aes_frame.is_themeable = False
+        self.sdes_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.sdes_frame.is_themeable = False
+        self.subst_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.subst_frame.is_themeable = False
+        self.settings_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.settings_frame.is_themeable = False
+        self.about_frame = self._create_widget(ctk.CTkFrame, self, fg_color="transparent");
+        self.about_frame.is_themeable = False
 
         self.setup_xor_frame_widgets()
         self.setup_lsb_frame_widgets()
@@ -1515,13 +1883,15 @@ class StegoApp(ctk.CTk):
         self.xor_title.grid(row=0, column=0, columnspan=2, pady=20, padx=20)
 
         self.xor_label1 = self._create_widget(ctk.CTkLabel, self.xor_frame, width=400, height=400, fg_color="gray20",
-                                              corner_radius=10, text=""); self.xor_label1.is_themeable = False
+                                              corner_radius=10, text="");
+        self.xor_label1.is_themeable = False
         self.xor_label1.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
         self.xor_load_btn1 = self._create_widget(ctk.CTkButton, self.xor_frame, command=self.load_xor_image1)
         self.xor_load_btn1.grid(row=2, column=0, padx=20, pady=10)
 
         self.xor_label2 = self._create_widget(ctk.CTkLabel, self.xor_frame, width=400, height=400, fg_color="gray20",
-                                              corner_radius=10, text=""); self.xor_label2.is_themeable = False
+                                              corner_radius=10, text="");
+        self.xor_label2.is_themeable = False
         self.xor_label2.grid(row=1, column=1, padx=20, pady=10, sticky="nsew")
         self.xor_load_btn2 = self._create_widget(ctk.CTkButton, self.xor_frame, command=self.load_xor_image2)
         self.xor_load_btn2.grid(row=2, column=1, padx=20, pady=10)
@@ -1531,14 +1901,17 @@ class StegoApp(ctk.CTk):
         self.xor_run_btn.grid(row=3, column=0, columnspan=2, pady=20)
 
         self.xor_result_label = self._create_widget(ctk.CTkLabel, self.xor_frame, width=800, height=400,
-                                                    fg_color="gray25", corner_radius=10, text=""); self.xor_result_label.is_themeable = False
+                                                    fg_color="gray25", corner_radius=10, text="");
+        self.xor_result_label.is_themeable = False
         self.xor_result_label.grid(row=4, column=0, columnspan=2, pady=10, padx=20, sticky="nsew")
 
         self.xor_save_btn = self._create_widget(ctk.CTkButton, self.xor_frame, text="Save XOR Result",
-                                               command=lambda: self.save_image_from_pil(self.xor_result_pil, "xor_result.png"))
+                                                command=lambda: self.save_image_from_pil(self.xor_result_pil,
+                                                                                         "xor_result.png"))
         self.xor_save_btn.grid(row=5, column=0, columnspan=2, pady=(0, 10))
 
-        self.xor_status_label = self._create_widget(ctk.CTkLabel, self.xor_frame, text="", text_color="yellow"); self.xor_status_label.is_themeable = False
+        self.xor_status_label = self._create_widget(ctk.CTkLabel, self.xor_frame, text="", text_color="yellow");
+        self.xor_status_label.is_themeable = False
         self.xor_status_label.grid(row=6, column=0, columnspan=2, pady=(0, 10))
 
     def setup_lsb_frame_widgets(self):
@@ -1558,20 +1931,24 @@ class StegoApp(ctk.CTk):
                                                font=ctk.CTkFont(size=16, weight="bold"))
         self.lsb_run_btn.grid(row=0, column=1, padx=10, pady=10)
 
-        img_frame = self._create_widget(ctk.CTkFrame, self.lsb_frame, fg_color="transparent"); img_frame.is_themeable = False
+        img_frame = self._create_widget(ctk.CTkFrame, self.lsb_frame, fg_color="transparent");
+        img_frame.is_themeable = False
         img_frame.grid(row=2, column=0, pady=10, padx=20, sticky="ew")
         img_frame.grid_columnconfigure((0, 1), weight=1)
 
         self.lsb_original_label = self._create_widget(ctk.CTkLabel, img_frame, width=450, height=350, fg_color="gray20",
-                                                      corner_radius=10, text=""); self.lsb_original_label.is_themeable = False
+                                                      corner_radius=10, text="");
+        self.lsb_original_label.is_themeable = False
         self.lsb_original_label.grid(row=0, column=0, pady=10, padx=10, sticky="nsew")
 
         self.lsb_result_label = self._create_widget(ctk.CTkLabel, img_frame, width=450, height=350, fg_color="gray25",
-                                                    corner_radius=10, text=""); self.lsb_result_label.is_themeable = False
+                                                    corner_radius=10, text="");
+        self.lsb_result_label.is_themeable = False
         self.lsb_result_label.grid(row=0, column=1, pady=10, padx=10, sticky="nsew")
 
         self.lsb_save_btn = self._create_widget(ctk.CTkButton, self.lsb_frame, text="Save LSB Result",
-                                               command=lambda: self.save_image_from_pil(self.lsb_result_pil, "lsb_result.png"))
+                                                command=lambda: self.save_image_from_pil(self.lsb_result_pil,
+                                                                                         "lsb_result.png"))
         self.lsb_save_btn.grid(row=3, column=0, pady=(0, 10))
 
         self.lsb_decoded_text_label = self._create_widget(ctk.CTkLabel, self.lsb_frame, font=ctk.CTkFont(size=16))
@@ -1580,7 +1957,8 @@ class StegoApp(ctk.CTk):
         self.lsb_text_result = self._create_widget(ctk.CTkTextbox, self.lsb_frame, height=100, font=("Consolas", 14))
         self.lsb_text_result.grid(row=5, column=0, pady=10, padx=20, sticky="nsew")
 
-        self.lsb_status_label = self._create_widget(ctk.CTkLabel, self.lsb_frame, text="", text_color="yellow"); self.lsb_status_label.is_themeable = False
+        self.lsb_status_label = self._create_widget(ctk.CTkLabel, self.lsb_frame, text="", text_color="yellow");
+        self.lsb_status_label.is_themeable = False
         self.lsb_status_label.grid(row=6, column=0, pady=(0, 10))
 
     def setup_picker_frame_widgets(self):
@@ -1596,7 +1974,8 @@ class StegoApp(ctk.CTk):
         self.picker_load_btn.grid(row=1, column=0, pady=10)
 
         self.picker_image_label = self._create_widget(ctk.CTkLabel, self.picker_frame, fg_color="gray20",
-                                                      corner_radius=10, text=""); self.picker_image_label.is_themeable = False
+                                                      corner_radius=10, text="");
+        self.picker_image_label.is_themeable = False
         self.picker_image_label.grid(row=2, column=0, pady=10, padx=20, sticky="nswe")
         self.picker_image_label.bind("<Button-1>", self.on_image_click)
 
@@ -1615,7 +1994,8 @@ class StegoApp(ctk.CTk):
         self.picker_clear_btn = self._create_widget(ctk.CTkButton, self.picker_frame, command=self.clear_picker_text)
         self.picker_clear_btn.grid(row=5, column=0, pady=5)
 
-        self.picker_status_label = self._create_widget(ctk.CTkLabel, self.picker_frame, text_color="gray"); self.picker_status_label.is_themeable = False
+        self.picker_status_label = self._create_widget(ctk.CTkLabel, self.picker_frame, text_color="gray");
+        self.picker_status_label.is_themeable = False
         self.picker_status_label.grid(row=6, column=0, pady=(0, 10))
 
     def setup_vigenere_frame_widgets(self):
@@ -1672,7 +2052,8 @@ class StegoApp(ctk.CTk):
         self.vigenere_output_textbox.grid(row=7, column=0, pady=5, padx=20, sticky="nsew")
 
         self.vigenere_status_label = self._create_widget(ctk.CTkLabel, self.vigenere_frame, text="",
-                                                         text_color="yellow"); self.vigenere_status_label.is_themeable = False
+                                                         text_color="yellow");
+        self.vigenere_status_label.is_themeable = False
         self.vigenere_status_label.grid(row=8, column=0, pady=(0, 10), padx=20, sticky="w")
 
     def setup_base64_frame_widgets(self):
@@ -1708,7 +2089,8 @@ class StegoApp(ctk.CTk):
         self.base64_output_textbox = self._create_widget(ctk.CTkTextbox, self.base64_frame, height=150)
         self.base64_output_textbox.grid(row=6, column=0, pady=5, padx=20, sticky="nsew")
 
-        self.base64_status_label = self._create_widget(ctk.CTkLabel, self.base64_frame, text="", text_color="yellow"); self.base64_status_label.is_themeable = False
+        self.base64_status_label = self._create_widget(ctk.CTkLabel, self.base64_frame, text="", text_color="yellow");
+        self.base64_status_label.is_themeable = False
         self.base64_status_label.grid(row=7, column=0, pady=(0, 10), padx=20, sticky="w")
 
     def setup_ela_frame_widgets(self):
@@ -1736,7 +2118,8 @@ class StegoApp(ctk.CTk):
         self.ela_scale_entry.grid(row=2, column=1, padx=(0, 10), pady=5, sticky="w")
         self.ela_scale_entry.insert(0, "15")
 
-        self.ela_quality_slider = self._create_widget(ctk.CTkSlider, controls_frame, from_=1, to=100, number_of_steps=99,
+        self.ela_quality_slider = self._create_widget(ctk.CTkSlider, controls_frame, from_=1, to=100,
+                                                      number_of_steps=99,
                                                       command=self.on_ela_quality_slider)
         self.ela_quality_slider.grid(row=1, column=2, padx=(10, 10), pady=5, sticky="we")
         self.ela_quality_slider.set(95)
@@ -1755,23 +2138,28 @@ class StegoApp(ctk.CTk):
                                                font=ctk.CTkFont(size=16, weight="bold"))
         self.ela_run_btn.grid(row=1, column=3, rowspan=2, padx=20, pady=10)
 
-        img_frame = self._create_widget(ctk.CTkFrame, self.ela_frame, fg_color="transparent"); img_frame.is_themeable = False
+        img_frame = self._create_widget(ctk.CTkFrame, self.ela_frame, fg_color="transparent");
+        img_frame.is_themeable = False
         img_frame.grid(row=2, column=0, pady=10, padx=20, sticky="ew")
         img_frame.grid_columnconfigure((0, 1), weight=1)
 
         self.ela_original_label = self._create_widget(ctk.CTkLabel, img_frame, width=450, height=350, fg_color="gray20",
-                                                      corner_radius=10, text=""); self.ela_original_label.is_themeable = False
+                                                      corner_radius=10, text="");
+        self.ela_original_label.is_themeable = False
         self.ela_original_label.grid(row=0, column=0, pady=10, padx=10, sticky="nsew")
 
         self.ela_result_label = self._create_widget(ctk.CTkLabel, img_frame, width=450, height=350, fg_color="gray25",
-                                                    corner_radius=10, text=""); self.ela_result_label.is_themeable = False
+                                                    corner_radius=10, text="");
+        self.ela_result_label.is_themeable = False
         self.ela_result_label.grid(row=0, column=1, pady=10, padx=10, sticky="nsew")
 
         self.ela_save_btn = self._create_widget(ctk.CTkButton, self.ela_frame, text="Save ELA Result",
-                                               command=lambda: self.save_image_from_pil(self.ela_result_pil, "ela_result.png"))
+                                                command=lambda: self.save_image_from_pil(self.ela_result_pil,
+                                                                                         "ela_result.png"))
         self.ela_save_btn.grid(row=3, column=0, pady=(0, 10))
 
-        self.ela_status_label = self._create_widget(ctk.CTkLabel, self.ela_frame, text="", text_color="yellow"); self.ela_status_label.is_themeable = False
+        self.ela_status_label = self._create_widget(ctk.CTkLabel, self.ela_frame, text="", text_color="yellow");
+        self.ela_status_label.is_themeable = False
         self.ela_status_label.grid(row=4, column=0, pady=(0, 10), padx=20, sticky="w")
 
     def on_ela_quality_slider(self, value):
@@ -1816,7 +2204,6 @@ class StegoApp(ctk.CTk):
             self.ela_scale_entry.delete(0, "end")
             self.ela_scale_entry.insert(0, "15")
 
-    
     def setup_aes_frame_widgets(self):
         tab = self.aes_frame
         tab.grid_columnconfigure(0, weight=1)
@@ -1839,13 +2226,13 @@ class StegoApp(ctk.CTk):
         keysize_frame.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
         keysize_frame.grid_columnconfigure(1, weight=1)
         self.aes_keysize_var = ctk.StringVar(value="Auto")
-        self.aes_keysize_menu = self._create_widget(ctk.CTkOptionMenu, keysize_frame, values=["Auto","128","192","256"], variable=self.aes_keysize_var)
-        self.aes_keysize_menu.grid(row=0, column=0, padx=(0,8), pady=6, sticky="w")
+        self.aes_keysize_menu = self._create_widget(ctk.CTkOptionMenu, keysize_frame,
+                                                    values=["Auto", "128", "192", "256"], variable=self.aes_keysize_var)
+        self.aes_keysize_menu.grid(row=0, column=0, padx=(0, 8), pady=6, sticky="w")
         self.aes_key_label = self._create_widget(ctk.CTkLabel, keysize_frame, text=lang["key_label"])
         self.aes_key_label.grid(row=0, column=1, padx=(8, 8), pady=6, sticky="w")
         self.aes_key_entry = self._create_widget(ctk.CTkEntry, keysize_frame)
         self.aes_key_entry.grid(row=0, column=2, padx=(0, 8), pady=6, sticky="ew")
-
 
         # вхідні дані
         self.aes_input_label = self._create_widget(ctk.CTkLabel, tab, font=ctk.CTkFont(size=14))
@@ -1856,7 +2243,7 @@ class StegoApp(ctk.CTk):
         # кнопка виконати + статус
         controls = self._create_widget(ctk.CTkFrame, tab)
         controls.grid(row=5, column=0, padx=20, pady=8, sticky="ew")
-        controls.grid_columnconfigure((0,1,2), weight=1)
+        controls.grid_columnconfigure((0, 1, 2), weight=1)
 
         self.aes_run_btn = self._create_widget(ctk.CTkButton, controls, command=self.perform_aes_operation,
                                                font=ctk.CTkFont(size=14, weight="bold"))
@@ -1868,7 +2255,7 @@ class StegoApp(ctk.CTk):
         bf_frame.grid_columnconfigure(1, weight=1)
 
         bf_label = self._create_widget(ctk.CTkLabel, bf_frame, text=lang["aes_bruteforce_label"])
-        bf_label.grid(row=0, column=0, padx=(0,6), sticky="w")
+        bf_label.grid(row=0, column=0, padx=(0, 6), sticky="w")
         self.aes_pin_maxlen_entry = self._create_widget(ctk.CTkEntry, bf_frame, width=60)
         self.aes_pin_maxlen_entry.grid(row=0, column=1, sticky="w")
         self.aes_pin_maxlen_entry.insert(0, "4")
@@ -1885,7 +2272,7 @@ class StegoApp(ctk.CTk):
         # статус
         self.aes_status_label = self._create_widget(ctk.CTkLabel, tab, text="", text_color="yellow")
         self.aes_status_label.is_themeable = False
-        self.aes_status_label.grid(row=8, column=0, padx=20, pady=(0,10), sticky="w")
+        self.aes_status_label.grid(row=8, column=0, padx=20, pady=(0, 10), sticky="w")
 
         # Ініціалізуємо локальні тексти під мову
         self.update_aes_texts()
@@ -2009,7 +2396,6 @@ class StegoApp(ctk.CTk):
                 self.after(0, lambda msg=err: self.aes_status_label.configure(text=f"Error: {msg}", text_color="red"))
 
         threading.Thread(target=worker, daemon=True).start()
-        
 
     def setup_settings_frame_widgets(self):
         self.settings_frame.grid_columnconfigure(0, weight=1)
@@ -2043,11 +2429,13 @@ class StegoApp(ctk.CTk):
 
         self.self_destruct_btn = self._create_widget(ctk.CTkButton, self.settings_frame,
                                                      fg_color="red", hover_color="darkred",
-                                                     command=self.self_destruct); self.self_destruct_btn.is_themeable = False
+                                                     command=self.self_destruct);
+        self.self_destruct_btn.is_themeable = False
         self.self_destruct_btn.grid(row=10, column=0, pady=10, padx=50, sticky="ew")
 
         self.self_destruct_progress = self._create_widget(ctk.CTkProgressBar, self.settings_frame, fg_color="gray20",
-                                                          progress_color="red"); self.self_destruct_progress.is_themeable = False
+                                                          progress_color="red");
+        self.self_destruct_progress.is_themeable = False
         self.self_destruct_progress.set(0)
         self.self_destruct_progress.grid(row=11, column=0, padx=50, pady=(0, 20), sticky="ew")
 
@@ -2060,7 +2448,8 @@ class StegoApp(ctk.CTk):
         self.about_title = self._create_widget(ctk.CTkLabel, self.about_frame, font=ctk.CTkFont(size=24, weight="bold"))
         self.about_title.grid(row=0, column=0, pady=20, padx=20)
 
-        center_frame = self._create_widget(ctk.CTkFrame, self.about_frame, fg_color="transparent"); center_frame.is_themeable = False
+        center_frame = self._create_widget(ctk.CTkFrame, self.about_frame, fg_color="transparent");
+        center_frame.is_themeable = False
         center_frame.grid(row=1, column=0, sticky="nsew", pady=20)
         center_frame.grid_columnconfigure(0, weight=1)
 
@@ -2072,7 +2461,8 @@ class StegoApp(ctk.CTk):
                                                      font=ctk.CTkFont(size=16, weight="bold"))
         self.about_links_label.grid(row=1, column=0, padx=20, pady=(20, 5))
 
-        links_frame = self._create_widget(ctk.CTkFrame, center_frame, fg_color="transparent"); links_frame.is_themeable = False
+        links_frame = self._create_widget(ctk.CTkFrame, center_frame, fg_color="transparent");
+        links_frame.is_themeable = False
         links_frame.grid(row=2, column=0, padx=20)
         links_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
@@ -2112,7 +2502,8 @@ class StegoApp(ctk.CTk):
         for lang_key, name in LANG_STRINGS[current_lang_code].items():
             if name == theme_display_name and lang_key.startswith("theme_"):
                 for en_name in THEMES.keys():
-                    internal_theme_key = "theme_" + en_name.lower().replace(" ", "_").replace("і", "i").replace("ї", "i")
+                    internal_theme_key = "theme_" + en_name.lower().replace(" ", "_").replace("і", "i").replace("ї",
+                                                                                                                "i")
                     if lang_key.replace("_", "") == internal_theme_key.replace("_", ""):
                         theme_key = en_name
                         break
@@ -2784,9 +3175,8 @@ class StegoApp(ctk.CTk):
         left_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
         left_frame.grid(row=1, column=0, rowspan=4, padx=(20, 10), pady=10, sticky="nsew")
         left_frame.grid_columnconfigure(0, weight=1)
-        # Give more weight to bigram row for more vertical space
-        left_frame.grid_rowconfigure(4, weight=1)  # char freq
-        left_frame.grid_rowconfigure(6, weight=2)  # bigram freq - more weight for visibility
+        left_frame.grid_rowconfigure(4, weight=1)
+        left_frame.grid_rowconfigure(6, weight=2)
 
         # Input textbox
         self.subst_input_label = self._create_widget(ctk.CTkLabel, left_frame)
@@ -2794,24 +3184,33 @@ class StegoApp(ctk.CTk):
         self.subst_input_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=100)
         self.subst_input_textbox.grid(row=1, column=0, pady=(0, 10), sticky="nsew")
 
+        # NEW: two-digit token mode checkbox
+        self.subst_two_digit_var = ctk.BooleanVar(value=False)
+        self.subst_two_digit_checkbox = self._create_widget(
+            ctk.CTkCheckBox, left_frame,
+            text="Multi-digit tokens (2-digit = 1 letter)",
+            variable=self.subst_two_digit_var
+        )
+        self.subst_two_digit_checkbox.grid(row=2, column=0, pady=5, sticky="w")
+
         # Analyze button
         self.subst_analyze_btn = self._create_widget(ctk.CTkButton, left_frame, command=self.perform_subst_analyze)
-        self.subst_analyze_btn.grid(row=2, column=0, pady=5, sticky="ew")
+        self.subst_analyze_btn.grid(row=3, column=0, pady=5, sticky="ew")
 
-        # Character frequency label and textbox
+        # Character/token frequency label and textbox
         self.subst_freq_chars_label = self._create_widget(ctk.CTkLabel, left_frame)
-        self.subst_freq_chars_label.grid(row=3, column=0, sticky="w")
+        self.subst_freq_chars_label.grid(row=4, column=0, sticky="w")
         self.subst_freq_chars_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=100,
                                                             font=("Courier New", 11))
-        self.subst_freq_chars_textbox.grid(row=4, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_freq_chars_textbox.grid(row=5, column=0, pady=(0, 10), sticky="nsew")
         self.subst_freq_chars_textbox.configure(state="disabled")
 
-        # Bigram frequency label and textbox - INCREASED height for better visibility
+        # Bigram frequency label and textbox
         self.subst_freq_bigrams_label = self._create_widget(ctk.CTkLabel, left_frame)
-        self.subst_freq_bigrams_label.grid(row=5, column=0, sticky="w")
+        self.subst_freq_bigrams_label.grid(row=6, column=0, sticky="w")
         self.subst_freq_bigrams_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=150,
                                                               font=("Courier New", 11))
-        self.subst_freq_bigrams_textbox.grid(row=6, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_freq_bigrams_textbox.grid(row=7, column=0, pady=(0, 10), sticky="nsew")
         self.subst_freq_bigrams_textbox.configure(state="disabled")
 
         # --- Right Column: Mapping Table & Output ---
@@ -2983,7 +3382,7 @@ class StegoApp(ctk.CTk):
             self.add_mapping_row()
 
     def perform_subst_analyze(self):
-        """Analyze the input ciphertext for character and bigram frequencies."""
+        """Analyze the input ciphertext for token/character and bigram frequencies."""
         lang = LANG_STRINGS[self.current_lang.get()]
         text = self.subst_input_textbox.get("1.0", tk.END).strip()
 
@@ -2991,19 +3390,29 @@ class StegoApp(ctk.CTk):
             self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
             return
 
-        # Compute character frequencies
-        char_freq = compute_char_freq(text)
-        char_text = "Sym  Count   %\n" + "-" * 20 + "\n"
-        for char, count, pct in char_freq[:30]:  # Top 30
-            char_text += f"{char:4} {count:5}  {pct:5.1f}%\n"
+        use_two_digit = bool(self.subst_two_digit_var.get())
+        if use_two_digit:
+            tokens = tokenize_text_two_digit_mode(text)
+            # Token frequency (digit tokens only)
+            freqs = compute_token_freq(tokens)
+            char_text = "Tok  Count   %\n" + "-" * 22 + "\n"
+            for tok, cnt, pct in freqs[:30]:
+                char_text += f"{tok:4} {cnt:5}  {pct:5.1f}%\n"
+            # Token bigrams
+            bg_freqs = compute_token_bigram_freq(tokens, top_n=15)
+            bigram_text = "TokTok  Count   %\n" + "-" * 24 + "\n"
+            for bg, cnt, pct in bg_freqs:
+                bigram_text += f"{bg:6} {cnt:5}  {pct:5.1f}%\n"
+        else:
+            char_freq = compute_char_freq(text)
+            char_text = "Sym  Count   %\n" + "-" * 20 + "\n"
+            for char, count, pct in char_freq[:30]:
+                char_text += f"{char:4} {count:5}  {pct:5.1f}%\n"
+            bigram_freq = compute_bigram_freq(text, top_n=15)
+            bigram_text = "Bigram  Count   %\n" + "-" * 22 + "\n"
+            for bg, count, pct in bigram_freq:
+                bigram_text += f"{bg:6} {count:5}  {pct:5.1f}%\n"
 
-        # Compute bigram frequencies
-        bigram_freq = compute_bigram_freq(text, top_n=15)
-        bigram_text = "Bigram  Count   %\n" + "-" * 22 + "\n"
-        for bg, count, pct in bigram_freq:
-            bigram_text += f"{bg:6} {count:5}  {pct:5.1f}%\n"
-
-        # Update textboxes
         self.subst_freq_chars_textbox.configure(state="normal")
         self.subst_freq_chars_textbox.delete("1.0", tk.END)
         self.subst_freq_chars_textbox.insert("1.0", char_text)
@@ -3016,6 +3425,41 @@ class StegoApp(ctk.CTk):
 
         self.subst_status_label.configure(text=lang["subst_status_ok_analyze"], text_color="green")
 
+
+    def perform_subst_suggest(self):
+        """
+        Suggest mapping using token or character frequency depending on mode.
+        """
+        lang_ui = LANG_STRINGS[self.current_lang.get()]
+        text = self.subst_input_textbox.get("1.0", tk.END).strip()
+
+        if not text:
+            self.subst_status_label.configure(text=lang_ui["subst_status_error_input"], text_color="red")
+            return
+
+        self.snapshot_current_mapping()
+
+        freq_lang_value = self.subst_freq_lang_var.get()
+        target_lang = "en" if freq_lang_value == lang_ui.get("subst_lang_en", "English") else "ua"
+
+        use_two_digit = bool(self.subst_two_digit_var.get())
+        if use_two_digit:
+            tokens = tokenize_text_two_digit_mode(text)
+            units_sorted = detect_cipher_symbols_tokens(tokens)
+            # normalized frequency over digit tokens only
+            dfreq = Counter([t for t, is_digit in tokens if is_digit])
+            total = sum(dfreq.values()) or 1
+            unit_freq = {tok: dfreq[tok] / total for tok in dfreq}
+            suggested = suggest_mapping_by_frequency(units_sorted, unit_freq, target_lang, limit=None)
+        else:
+            cipher_symbols = detect_cipher_symbols(text)
+            cipher_freq = compute_cipher_frequencies_lower(text)
+            suggested = compare_frequencies(cipher_freq, ukr_letter_freq if target_lang == 'ua' else en_letter_freq)
+
+        self.set_mapping_rows(suggested)
+        self.perform_subst_analyze()
+        self.subst_status_label.configure(text=lang_ui["subst_status_ok_suggest"], text_color="green")
+
     def perform_subst_apply(self):
         """Apply the current mapping to the input text and show result."""
         lang = LANG_STRINGS[self.current_lang.get()]
@@ -3025,50 +3469,16 @@ class StegoApp(ctk.CTk):
             self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
             return
 
-        # Save state before apply
         self.snapshot_current_mapping()
 
         mapping = self.get_current_mapping()
-        result = apply_substitution_mapping(text, mapping)
+        # Normalize mapping values to uppercase single letters (leave non-letters as-is)
+        norm_mapping = {k: (v.upper() if len(v) == 1 else v) for k, v in mapping.items() if k}
 
+        result = detokenize_apply_mapping(text, norm_mapping, use_two_digit_mode=bool(self.subst_two_digit_var.get()))
         self.subst_output_textbox.delete("1.0", tk.END)
         self.subst_output_textbox.insert("1.0", result)
         self.subst_status_label.configure(text=lang["subst_status_ok_apply"], text_color="green")
-
-    def perform_subst_suggest(self):
-        """
-        Brute force suggestion: detect cipher symbols and suggest mappings
-        based on language frequency analysis.
-        Dynamically updates mapping rows to include all detected cipher symbols.
-        """
-        lang = LANG_STRINGS[self.current_lang.get()]
-        text = self.subst_input_textbox.get("1.0", tk.END).strip()
-
-        if not text:
-            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
-            return
-
-        # Save state before suggest
-        self.snapshot_current_mapping()
-
-        # Determine which language to use for frequency baseline
-        freq_lang_value = self.subst_freq_lang_var.get()
-        if freq_lang_value == lang.get("subst_lang_en", "English"):
-            target_lang = "en"
-        else:
-            target_lang = "ua"
-
-        # Get all detected cipher symbols and suggested mapping (no limit - all symbols)
-        suggested = suggest_mapping_by_frequency(text, target_lang, limit=None)
-
-        # Clear existing mapping rows and create new ones for all detected symbols
-        # This dynamically adapts row count based on text content
-        self.set_mapping_rows(suggested)
-        
-        # Also trigger the frequency analysis to update the display
-        self.perform_subst_analyze()
-        
-        self.subst_status_label.configure(text=lang["subst_status_ok_suggest"], text_color="green")
 
     def perform_subst_clear(self):
         """Clear the mapping table."""
@@ -3153,11 +3563,11 @@ class StegoApp(ctk.CTk):
         lang = LANG_STRINGS[self.current_lang.get()]
         if not self.subst_undo_stack:
             return
-        
+
         # Save current state to redo stack
         current = self.get_current_mapping()
         self.subst_redo_stack.append(current)
-        
+
         # Restore previous state
         prev_mapping = self.subst_undo_stack.pop()
         self.restore_mapping(prev_mapping)
@@ -3168,11 +3578,11 @@ class StegoApp(ctk.CTk):
         lang = LANG_STRINGS[self.current_lang.get()]
         if not self.subst_redo_stack:
             return
-        
+
         # Save current state to undo stack
         current = self.get_current_mapping()
         self.subst_undo_stack.append(current)
-        
+
         # Restore redo state
         next_mapping = self.subst_redo_stack.pop()
         self.restore_mapping(next_mapping)
@@ -3180,48 +3590,91 @@ class StegoApp(ctk.CTk):
 
     def perform_subst_auto_replace(self):
         """
-        Auto Replace: Run auto_suggest_substitution on the current ciphertext,
-        populate mapping table with suggested mapping, apply substitution, and show result.
+        Auto Replace with hillclimb.
+        In two-digit mode, we generate mapping over digit tokens and apply token-aware rendering.
         """
-        lang = LANG_STRINGS[self.current_lang.get()]
+        lang_ui = LANG_STRINGS[self.current_lang.get()]
         text = self.subst_input_textbox.get("1.0", tk.END).strip()
-
         if not text:
-            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
+            self.subst_status_label.configure(text=lang_ui["subst_status_error_input"], text_color="red")
             return
 
-        # Save current state before auto-replace
-        self.snapshot_current_mapping()
-
-        # Determine which language to use for frequency baseline
         freq_lang_value = self.subst_freq_lang_var.get()
-        if freq_lang_value == lang.get("subst_lang_en", "English"):
-            target_lang = "en"
-        else:
-            target_lang = "ua"
+        lang_code = 'ua' if freq_lang_value == lang_ui.get("subst_lang_ua", "Українська") else 'en'
 
-        # Run auto suggestion pipeline
-        suggested = auto_suggest_substitution(text, target_lang)
+        use_two_digit = bool(self.subst_two_digit_var.get())
+        self.subst_status_label.configure(text="⏳ Оптимізація (hillclimb)...", text_color="yellow")
+        self.update_idletasks()
 
-        if not suggested:
-            self.subst_status_label.configure(text=lang["subst_status_error_input"], text_color="red")
+        def worker():
+            try:
+                if use_two_digit:
+                    # Build initial mapping from digit tokens
+                    tokens = tokenize_text_two_digit_mode(text)
+                    units_sorted = detect_cipher_symbols_tokens(tokens)
+                    dfreq = Counter([t for t, is_digit in tokens if is_digit])
+                    total = sum(dfreq.values()) or 1
+                    unit_freq = {tok: dfreq[tok] / total for tok in dfreq}
+                    base_mapping = suggest_mapping_by_frequency(units_sorted, unit_freq, lang_code, limit=None)
+
+                    # Simple refinement via random swaps on token mapping using scoring of rendered plaintext
+                    rng = random.Random()
+                    best_map = base_mapping.copy()
+                    best_plain = detokenize_apply_mapping(text, best_map, use_two_digit_mode=True)
+                    bigram_model = _build_bigram_model(lang_code)
+                    letter_model = _build_letter_freq_model(lang_code)
+                    best_score = _subst_score_plaintext(best_plain, bigram_model, letter_model)
+
+                    iterations = 4000
+                    for _ in range(iterations):
+                        if len(best_map) < 2:
+                            break
+                        keys = list(best_map.keys())
+                        k1, k2 = rng.sample(keys, 2)
+                        cand = best_map.copy()
+                        cand[k1], cand[k2] = cand[k2], cand[k1]
+                        cand_plain = detokenize_apply_mapping(text, cand, use_two_digit_mode=True)
+                        cand_score = _subst_score_plaintext(cand_plain, bigram_model, letter_model)
+                        if cand_score > best_score:
+                            best_map, best_plain, best_score = cand, cand_plain, cand_score
+
+                    self.after(0, lambda: self._subst_auto_done(best_map, best_plain, best_score, lang_code))
+                else:
+                    mapping, plaintext, score = subst_hillclimb(
+                        text, lang=lang_code,
+                        iterations=5000, restarts=6,
+                        smoothing=1e-6, temp_start=1.0,
+                        temp_decay=0.00025, seed=None
+                    )
+                    self.after(0, lambda: self._subst_auto_done(mapping, plaintext, score, lang_code))
+            except Exception as e:
+                self.after(0, lambda: self.subst_status_label.configure(
+                    text=f"Помилка оптимізації: {e}", text_color="red"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+
+    def _subst_auto_done(self, mapping, plaintext, score, lang_code):
+        lang_ui = LANG_STRINGS[self.current_lang.get()]
+        if not mapping:
+            self.subst_status_label.configure(text="Не вдалося побудувати заміну.", text_color="red")
             return
 
-        # Update mapping table with suggestions
-        self.set_mapping_rows(suggested)
-
-        # Apply substitution and show result
-        result = apply_substitution_mapping(text, suggested)
+        # Оновити таблицю
+        self.set_mapping_rows(mapping)
+        # Поставити результат
         self.subst_output_textbox.delete("1.0", tk.END)
-        self.subst_output_textbox.insert("1.0", result)
+        self.subst_output_textbox.insert("1.0", plaintext)
 
-        # Also trigger the frequency analysis to update the display
+        # Запустити аналіз частот (оновити панелі)
         self.perform_subst_analyze()
+        # Підсвічування (використовує існуючий метод)
+        self.highlight_mapping_confidence(plaintext, lang_code)
 
-        # Highlight likely letters based on confidence
-        self.highlight_mapping_confidence(text, target_lang)
-
-        self.subst_status_label.configure(text=lang.get("subst_status_ok_auto", "Auto replacement applied."), text_color="green")
+        self.subst_status_label.configure(
+            text=f"{lang_ui.get('subst_status_ok_auto','Auto replacement applied.')} | Score={score:.2f}",
+            text_color="green"
+        )
 
     def highlight_mapping_confidence(self, text: str, lang: str):
         """
@@ -3236,11 +3689,11 @@ class StegoApp(ctk.CTk):
 
         # Calculate cipher symbol frequencies
         cipher_freq = compute_cipher_frequencies_lower(text)
-        
+
         # Sort both by frequency
         cipher_sorted = sorted(cipher_freq.items(), key=lambda x: x[1], reverse=True)
         lang_sorted = sorted(lang_freq.items(), key=lambda x: x[1], reverse=True)
-        
+
         # Create a confidence score for each position
         # Higher positions (more frequent) get higher confidence
         for idx, (cipher_entry, plain_entry) in enumerate(self.subst_mapping_rows):
@@ -3251,9 +3704,9 @@ class StegoApp(ctk.CTk):
                 total = len(self.subst_mapping_rows)
                 if total == 0:
                     continue
-                    
+
                 position_ratio = idx / total
-                
+
                 if position_ratio <= 0.25:
                     # High confidence - light green
                     self.set_entry_confidence(plain_entry, "high")
@@ -3297,10 +3750,12 @@ class StegoApp(ctk.CTk):
             with open(path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
 
-            self.subst_status_label.configure(text=lang.get("subst_status_ok_export_txt", "Mapping exported to TXT."), text_color="green")
+            self.subst_status_label.configure(text=lang.get("subst_status_ok_export_txt", "Mapping exported to TXT."),
+                                              text_color="green")
         except Exception as e:
             logger.error(f"Export TXT mapping failed: {e}")
-            self.subst_status_label.configure(text=lang.get('subst_status_error_export', "Export error"), text_color="red")
+            self.subst_status_label.configure(text=lang.get('subst_status_error_export', "Export error"),
+                                              text_color="red")
 
     def perform_subst_import_txt(self):
         """Import a mapping from a TXT file (cipher=plain format)."""
@@ -3328,15 +3783,17 @@ class StegoApp(ctk.CTk):
 
             self.snapshot_current_mapping()  # Save state before import
             self.set_mapping_rows(mapping)
-            self.subst_status_label.configure(text=lang.get("subst_status_ok_import_txt", "Mapping imported from TXT."), text_color="green")
+            self.subst_status_label.configure(text=lang.get("subst_status_ok_import_txt", "Mapping imported from TXT."),
+                                              text_color="green")
         except Exception as e:
             logger.error(f"Import TXT mapping failed: {e}")
-            self.subst_status_label.configure(text=lang.get('subst_status_error_import_txt', "Invalid TXT file."), text_color="red")
-
+            self.subst_status_label.configure(text=lang.get('subst_status_error_import_txt', "Invalid TXT file."),
+                                              text_color="red")
 
     # --- show/hide frames ---
     def hide_all_frames(self):
-        for f in [self.xor_frame, self.lsb_frame, self.picker_frame, self.vigenere_frame, self.base64_frame, self.ela_frame,
+        for f in [self.xor_frame, self.lsb_frame, self.picker_frame, self.vigenere_frame, self.base64_frame,
+                  self.ela_frame,
                   self.aes_frame, self.sdes_frame, self.subst_frame, self.settings_frame, self.about_frame]:
             try:
                 f.grid_forget()
@@ -3392,7 +3849,6 @@ class StegoApp(ctk.CTk):
 
     # ---------- AES / S-DES operations ----------
 
-
     def _aes_brute_done_callback(self, matches, duration):
         lang = LANG_STRINGS[self.current_lang.get()]
         self.aes_output_textbox.delete("1.0", tk.END)
@@ -3444,7 +3900,8 @@ class StegoApp(ctk.CTk):
     def perform_sdes_bruteforce(self):
         lang = LANG_STRINGS[self.current_lang.get()]
         data_b64 = self.sdes_input_textbox.get("1.0", tk.END).strip()
-        known_frag = self.sdes_known_fragment_entry.get().strip().encode('utf-8') if self.sdes_known_fragment_entry.get().strip() else None
+        known_frag = self.sdes_known_fragment_entry.get().strip().encode(
+            'utf-8') if self.sdes_known_fragment_entry.get().strip() else None
         if not data_b64:
             self.sdes_status_label.configure(text="Provide S-DES base64 ciphertext in input box", text_color="red")
             return
@@ -4013,7 +4470,8 @@ class StegoApp(ctk.CTk):
             return
         try:
             path = filedialog.asksaveasfilename(defaultextension=".png",
-                                                filetypes=[("PNG Image", "*.png"), ("JPEG Image", "*.jpg;*.jpeg"), ("All files", "*.*")],
+                                                filetypes=[("PNG Image", "*.png"), ("JPEG Image", "*.jpg;*.jpeg"),
+                                                           ("All files", "*.*")],
                                                 initialfile=default_name)
             if not path:
                 return
@@ -4543,7 +5001,8 @@ class StegoApp(ctk.CTk):
                 preview = text.replace('\n', ' ').replace('\r', '')[:60]
                 result_text += lang.get("dialog_brute_sdes_match", "Key: {0}\nPlaintext: {1}...\n").format(key, preview)
 
-            msg = lang.get("dialog_brute_sdes_msg", "Found {0} possible matches (max 100 shown):\n\n{1}").format(len(matches), result_text)
+            msg = lang.get("dialog_brute_sdes_msg", "Found {0} possible matches (max 100 shown):\n\n{1}").format(
+                len(matches), result_text)
 
         # Show a simple messagebox with results (original code attempted to instantiate StegoApp incorrectly)
         try:
