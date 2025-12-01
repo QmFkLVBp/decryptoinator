@@ -1086,6 +1086,7 @@ connectivity_matrix = {
 # Constants for substitution algorithms and UI
 MAX_CIPHER_SYMBOLS = 100  # Maximum cipher symbols to process
 MAX_BIGRAMS_TO_ANALYZE = 20  # Maximum bigrams to analyze during refinement
+BIGRAM_SCORE_SCALE_FACTOR = 10  # Scale factor for bigram connectivity scores
 MAX_UNDO_STACK_SIZE = 50  # Maximum undo stack entries
 CONFIDENCE_HIGH_COLOR = '#90EE90'  # Light green for high confidence
 CONFIDENCE_LOW_COLOR = '#FFB6C1'  # Light red/pink for low confidence
@@ -1613,7 +1614,7 @@ def compute_cipher_bigram_freq_table(text: str, mapping: dict, use_two_digit: bo
         # Compute connectivity score against UA bigram model
         conn_score = UA_COMMON_BIGRAMS.get(mapped_bg, 0.0)
         if conn_score == 0:
-            conn_score = ukr_bigrams.get(mapped_bg, 0.0) * 10  # Scale for visibility
+            conn_score = ukr_bigrams.get(mapped_bg, 0.0) * BIGRAM_SCORE_SCALE_FACTOR
         
         result.append({
             'cipher_bigram': cipher_bg_str,
@@ -1646,7 +1647,7 @@ def compute_plaintext_bigram_freq_table(plaintext: str, top_n: int = 15) -> List
         # Compute connectivity score against UA bigram model
         conn_score = UA_COMMON_BIGRAMS.get(bg, 0.0)
         if conn_score == 0:
-            conn_score = ukr_bigrams.get(bg, 0.0) * 10  # Scale for visibility
+            conn_score = ukr_bigrams.get(bg, 0.0) * BIGRAM_SCORE_SCALE_FACTOR
         
         result.append({
             'bigram': bg.upper(),
@@ -1656,6 +1657,13 @@ def compute_plaintext_bigram_freq_table(plaintext: str, top_n: int = 15) -> List
         })
     
     return result
+
+
+def _format_connectivity_score(score: float) -> str:
+    """Format connectivity score for display. Returns '-' for zero/near-zero scores."""
+    if score > 1e-9:  # Small epsilon for floating-point comparison
+        return f"{score:.1f}"
+    return "-"
 
 
 def format_connectivity_table(cipher_table: List[dict], plain_table: List[dict]) -> str:
@@ -1670,7 +1678,7 @@ def format_connectivity_table(cipher_table: List[dict], plain_table: List[dict])
     lines.append(f"{'Tokens':10} {'Count':6} {'%':6} {'Mapped':8} {'UA Score':8}")
     lines.append("-" * 42)
     for entry in cipher_table:
-        score_str = f"{entry['connectivity_score']:.1f}" if entry['connectivity_score'] > 0 else "-"
+        score_str = _format_connectivity_score(entry['connectivity_score'])
         lines.append(f"{entry['cipher_bigram']:10} {entry['count']:6} {entry['pct']:5.1f}% {entry['mapped_bigram']:8} {score_str:8}")
     
     lines.append("")
@@ -1680,7 +1688,7 @@ def format_connectivity_table(cipher_table: List[dict], plain_table: List[dict])
     lines.append(f"{'Bigram':8} {'Count':6} {'%':6} {'UA Score':8}")
     lines.append("-" * 32)
     for entry in plain_table:
-        score_str = f"{entry['connectivity_score']:.1f}" if entry['connectivity_score'] > 0 else "-"
+        score_str = _format_connectivity_score(entry['connectivity_score'])
         lines.append(f"{entry['bigram']:8} {entry['count']:6} {entry['pct']:5.1f}% {score_str:8}")
     
     return '\n'.join(lines)
