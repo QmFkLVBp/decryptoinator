@@ -1124,49 +1124,88 @@ def compute_bigram_freq(text: str, top_n: int = 20) -> List[Tuple[str, int, floa
     return result
 
 
+def _map_char_with_case(c: str, mapping: dict) -> str:
+    """
+    Map a single non-digit character using mapping with case-aware behavior:
+    - Prefer exact key match (use value as-is).
+    - Else try opposite-case key; if found and the value is a single alphabetic letter,
+      adjust the output case to the input char's case.
+    - If value is empty or not found, return original char.
+    """
+    # Exact key first
+    if c in mapping:
+        v = mapping[c]
+        if v == '':
+            return c
+        return v
+
+    # Case-insensitive fallback (only if counterpart exists)
+    if len(c) == 1 and c.isalpha():
+        alt_key = c.swapcase()
+        if alt_key in mapping:
+            v = mapping[alt_key]
+            if v == '':
+                return c
+            # If the mapped value is a single alpha, adjust case to source
+            if isinstance(v, str) and len(v) == 1 and v.isalpha():
+                return v.upper() if c.isupper() else v.lower()
+            # Otherwise return as-is
+            return v
+
+    return c
+
+
 def apply_substitution_mapping(text: str, mapping: dict) -> str:
     """
-    Character-mode mapping (single-char keys).
-    Note: For numeric tokens (1- or 2-digit), use apply_mapping_mixed_tokens.
+    Auto-select substitution method:
+    - If mapping contains ANY numeric keys (tokens of digits), apply mixed token logic
+      (supports 1- and 2-digit numeric tokens with longest-match-first + char mapping).
+    - Otherwise, perform character substitution with case-aware behavior:
+        * exact key match => use value as-is
+        * else case-insensitive fallback with output case adjusted for single-letter mappings
+    Note: This does not modify UI, only the substitution behavior.
     """
     if not mapping:
         return text
-    # Keep only single-character keys for this mode
-    char_map = {k: v for k, v in mapping.items() if len(k) == 1}
-    if not char_map:
-        return text
-    table = str.maketrans(char_map)
-    return text.translate(table)
+
+    has_numeric_keys = any(k.isdigit() for k in mapping.keys())
+    if has_numeric_keys:
+        return apply_mapping_mixed_tokens(text, mapping)
+
+    # Character-only mapping with case-aware behavior
+    out_chars: List[str] = []
+    for ch in text:
+        out_chars.append(_map_char_with_case(ch, mapping))
+    return ''.join(out_chars)
 
 # NEW: Mixed tokenization — supports 1- and 2-digit tokens in the same text
-def tokenize_digits_with_mapping(text: str, mapping_keys: set[str]) -> List[Tuple[str, bool]]:
+def tokenize_digits_with_mapping(text: str, mapping_keys: set) -> List[Tuple[str, bool]]:
     """
-    Tokenize digits in text using longest-match-first against mapping keys.
-    - If both 1-digit and 2-digit tokens exist in mapping_keys, prefer 2-digit when possible.
-    - Non-digit characters kept as single tokens; whitespace/punctuation preserved.
-    Returns list of (token, is_digit_token).
+    Tokenize text into (token, is_digit_token) with longest-match-first for digits.
+    - If mapping includes 2-digit numeric keys, always attempt a 2-digit match before single-digit.
+    - Non-digit characters are preserved as single-character tokens.
+    - Unmatched digits are preserved as tokens and do not break surrounding text.
     """
     tokens: List[Tuple[str, bool]] = []
     i = 0
     n = len(text)
-    # speed: precompute whether we have 2-digit numeric keys
+
+    # Hints for matching strategy
     has_two_digit_keys = any(k.isdigit() and len(k) == 2 for k in mapping_keys)
     has_one_digit_keys = any(k.isdigit() and len(k) == 1 for k in mapping_keys)
+
     while i < n:
         ch = text[i]
         if ch.isdigit():
-            # try longest match (2-digit) if available
-            if has_two_digit_keys and (i + 1 < n) and text[i+1].isdigit():
-                pair = text[i:i+2]
+            # Longest-match-first: try 2-digit match if available
+            if has_two_digit_keys and (i + 1 < n) and text[i + 1].isdigit():
+                pair = text[i:i + 2]
                 if pair in mapping_keys:
                     tokens.append((pair, True))
                     i += 2
                     continue
-            # fallback to single digit if mapped or just keep digit
-            if has_one_digit_keys and ch in mapping_keys:
-                tokens.append((ch, True))
-            else:
-                tokens.append((ch, True))
+            # Fallback to single-digit token (mapped or not)
+            tokens.append((ch, True))
             i += 1
         else:
             tokens.append((ch, False))
@@ -1175,23 +1214,30 @@ def tokenize_digits_with_mapping(text: str, mapping_keys: set[str]) -> List[Tupl
 
 def apply_mapping_mixed_tokens(text: str, mapping: dict) -> str:
     """
-    Apply mapping with support for mixed numeric tokens (1 or 2 digits).
-    - Longest-match-first for digits based on provided mapping keys.
-    - Non-digit chars replaced only if direct 1-char key exists (optional).
+    Apply a mixed substitution mapping:
+    - Supports numeric tokens (1- or 2-digit) with longest-match-first.
+    - Also supports character mapping (symbol -> symbol), case-aware as per _map_char_with_case.
+    - Preserves punctuation and whitespace.
+    - Unmatched tokens are preserved and do not break the rest of the text.
     """
     if not mapping:
         return text
+
     keys = set(mapping.keys())
     tokens = tokenize_digits_with_mapping(text, keys)
+
     out_parts: List[str] = []
     for tok, is_digit in tokens:
-        if is_digit and tok in mapping and mapping[tok] != '':
-            out_parts.append(mapping[tok])
-        elif (not is_digit) and len(tok) == 1 and tok in mapping and mapping[tok] != '':
-            # allow character mapping too
-            out_parts.append(mapping[tok])
+        if is_digit:
+            # digits: only replace if exact key exists and value is not empty
+            if tok in mapping and mapping[tok] != '':
+                out_parts.append(mapping[tok])
+            else:
+                out_parts.append(tok)
         else:
-            out_parts.append(tok)
+            # non-digits: case-aware mapping
+            out_parts.append(_map_char_with_case(tok, mapping))
+
     return ''.join(out_parts)
 
 def detect_cipher_symbols(text: str) -> List[str]:
@@ -1336,10 +1382,11 @@ def auto_suggest_substitution(text: str, lang: str) -> dict:
 
 def tokenize_text_two_digit_mode(text: str) -> List[Tuple[str, bool]]:
     """
-    Tokenize ciphertext so that sequences of digits are grouped into 2-digit tokens.
-    Returns list of (token, is_digit_token).
-    Non-digit characters are kept as single-character tokens.
-    Spaces are preserved as separate non-token entries for reconstruction.
+    Two-digit mode tokenizer:
+    - Group consecutive digits into 2-digit tokens (pairs) with a possible trailing single digit.
+      Example: '12345' -> ['12','34','5']
+    - Non-digit characters are preserved as single-character tokens.
+    - This is a grouping hint mode for UI; mixed logic is still handled at apply time.
     """
     tokens: List[Tuple[str, bool]] = []
     i = 0
@@ -1352,40 +1399,57 @@ def tokenize_text_two_digit_mode(text: str) -> List[Tuple[str, bool]]:
                 j += 1
             run = text[i:j]
             k = 0
+            # group into pairs
             while k + 2 <= len(run):
-                tokens.append((run[k:k+2], True))
+                tokens.append((run[k:k + 2], True))
                 k += 2
             if k < len(run):
                 tokens.append((run[k], True))
             i = j
         else:
-            # Preserve whitespace and punctuation as tokens (non-digit)
             tokens.append((ch, False))
             i += 1
     return tokens
 
 def detokenize_apply_mapping(text: str, mapping: dict, use_two_digit_mode: bool) -> str:
     """
-    Apply mapping either:
-      - character mode: use apply_substitution_mapping (only single-char keys)
-      - two-digit token mode: replace only full 2-digit digit tokens by mapping values.
-    Punctuation and spaces are preserved as-is.
+    Central dispatcher for applying mapping, honoring the UI 'use_two_digit_mode':
+    - If mapping is empty -> return input as-is.
+    - If use_two_digit_mode is True:
+        * Tokenize digits into pairs (with trailing single digit) via tokenize_text_two_digit_mode.
+        * Replace digit tokens by mapping values when present.
+        * Also apply character mapping (case-aware) to non-digit tokens.
+    - If use_two_digit_mode is False:
+        * If mapping contains numeric keys, apply full mixed logic
+          (tokenize_digits_with_mapping + longest-match-first + char mapping).
+        * Else, perform character-only mapping (case-aware).
+    In all modes, unmatched tokens are preserved and punctuation/spacing is kept intact.
     """
     if not mapping:
         return text
-    if not use_two_digit_mode:
-        # Character mode
-        return apply_substitution_mapping(text, mapping)
 
-    # Two-digit token mode
-    tokens = tokenize_text_two_digit_mode(text)
-    out_parts: List[str] = []
-    for tok, is_digit in tokens:
-        if is_digit and tok in mapping and mapping[tok]:
-            out_parts.append(mapping[tok])
-        else:
-            out_parts.append(tok)
-    return ''.join(out_parts)
+    has_numeric_keys = any(k.isdigit() for k in mapping.keys())
+
+    if use_two_digit_mode:
+        # Two-digit token mode: pair grouping + character mapping
+        tokens = tokenize_text_two_digit_mode(text)
+        out_parts: List[str] = []
+        for tok, is_digit in tokens:
+            if is_digit and tok in mapping and mapping[tok] != '':
+                out_parts.append(mapping[tok])
+            elif is_digit:
+                out_parts.append(tok)
+            else:
+                out_parts.append(_map_char_with_case(tok, mapping))
+        return ''.join(out_parts)
+
+    # Not two-digit mode
+    if has_numeric_keys:
+        # Mixed-mode with longest-match-first digit handling + char mapping
+        return apply_mapping_mixed_tokens(text, mapping)
+
+    # Character-only mapping
+    return apply_substitution_mapping(text, mapping)
 
 def compute_token_freq(tokens: List[Tuple[str, bool]]) -> List[Tuple[str, int, float]]:
     """Frequency of digit tokens only in two-digit mode."""
