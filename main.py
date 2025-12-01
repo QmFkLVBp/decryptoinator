@@ -1173,20 +1173,20 @@ def apply_substitution_mapping(text: str, mapping: dict) -> str:
         return apply_mapping_mixed_tokens(text, mapping)
 
     # Character-only mapping with case-aware behavior
-    out_chars: list[str] = []
+    out_chars: List[str] = []
     for ch in text:
         out_chars.append(_map_char_with_case(ch, mapping))
     return ''.join(out_chars)
 
 # NEW: Mixed tokenization — supports 1- and 2-digit tokens in the same text
-def tokenize_digits_with_mapping(text: str, mapping_keys: set[str]) -> list[tuple[str, bool]]:
+def tokenize_digits_with_mapping(text: str, mapping_keys: set) -> List[Tuple[str, bool]]:
     """
     Tokenize text into (token, is_digit_token) with longest-match-first for digits.
     - If mapping includes 2-digit numeric keys, always attempt a 2-digit match before single-digit.
     - Non-digit characters are preserved as single-character tokens.
     - Unmatched digits are preserved as tokens and do not break surrounding text.
     """
-    tokens: list[tuple[str, bool]] = []
+    tokens: List[Tuple[str, bool]] = []
     i = 0
     n = len(text)
 
@@ -1226,7 +1226,7 @@ def apply_mapping_mixed_tokens(text: str, mapping: dict) -> str:
     keys = set(mapping.keys())
     tokens = tokenize_digits_with_mapping(text, keys)
 
-    out_parts: list[str] = []
+    out_parts: List[str] = []
     for tok, is_digit in tokens:
         if is_digit:
             # digits: only replace if exact key exists and value is not empty
@@ -1380,7 +1380,7 @@ def auto_suggest_substitution(text: str, lang: str) -> dict:
             final_mapping[orig_sym] = refined_mapping[lower_sym].upper()
     return final_mapping
 
-def tokenize_text_two_digit_mode(text: str) -> list[tuple[str, bool]]:
+def tokenize_text_two_digit_mode(text: str) -> List[Tuple[str, bool]]:
     """
     Two-digit mode tokenizer:
     - Group consecutive digits into 2-digit tokens (pairs) with a possible trailing single digit.
@@ -1388,7 +1388,7 @@ def tokenize_text_two_digit_mode(text: str) -> list[tuple[str, bool]]:
     - Non-digit characters are preserved as single-character tokens.
     - This is a grouping hint mode for UI; mixed logic is still handled at apply time.
     """
-    tokens: list[tuple[str, bool]] = []
+    tokens: List[Tuple[str, bool]] = []
     i = 0
     n = len(text)
     while i < n:
@@ -1433,7 +1433,7 @@ def detokenize_apply_mapping(text: str, mapping: dict, use_two_digit_mode: bool)
     if use_two_digit_mode:
         # Two-digit token mode: pair grouping + character mapping
         tokens = tokenize_text_two_digit_mode(text)
-        out_parts: list[str] = []
+        out_parts: List[str] = []
         for tok, is_digit in tokens:
             if is_digit and tok in mapping and mapping[tok] != '':
                 out_parts.append(mapping[tok])
