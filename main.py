@@ -1098,7 +1098,24 @@ UA_VOWEL_RATIO_TARGET = 0.41
 UA_VOWEL_RATIO_TOLERANCE = 0.08  # allowed deviation
 
 # Default punctuation charset for ignore punctuation feature
-DEFAULT_PUNCT_CHARSET = set('/?!,.:;"\'()[]{}' + '-_' + '\u2014\u2013' + '\u00ab\u00bb\u201e\u201c\u201d\u2018\u2019')
+# Basic punctuation: / ? ! , . : ; " ' ( ) [ ] { } - _
+# Unicode dashes: — (em dash, U+2014), – (en dash, U+2013)
+# Unicode quotes: « » „ " " ' ' (various quotation marks)
+DEFAULT_PUNCT_CHARSET = set([
+    '/', '?', '!', ',', '.', ':', ';', '"', "'", '(', ')', '[', ']', '{', '}', '-', '_',
+    '\u2014',  # — em dash
+    '\u2013',  # – en dash
+    '\u00ab',  # « left-pointing double angle quotation mark
+    '\u00bb',  # » right-pointing double angle quotation mark
+    '\u201e',  # „ double low-9 quotation mark
+    '\u201c',  # " left double quotation mark
+    '\u201d',  # " right double quotation mark
+    '\u2018',  # ' left single quotation mark
+    '\u2019',  # ' right single quotation mark
+])
+
+# Human-readable representation for UI display
+DEFAULT_PUNCT_DISPLAY = '/ ? ! , . : ; " \' ( ) [ ] { } - _'
 
 # Common UA bigrams for scoring (expanded set for bonuses)
 UA_COMMON_BIGRAMS = {
@@ -1115,7 +1132,7 @@ UA_COMMON_TRIGRAMS = {
     'про': 2.5, 'при': 2.3, 'сто': 2.0, 'ник': 1.8, 'ани': 1.7,
     'енн': 2.2, 'ств': 1.9, 'ові': 1.6, 'ост': 1.8, 'ого': 1.7,
     'ння': 2.0, 'тис': 1.5, 'ком': 1.5, 'ина': 1.6, 'ьки': 1.5,
-    'ати': 1.7, 'ити': 1.6, 'ова': 1.5, 'ити': 1.5, 'ськ': 1.8,
+    'ати': 1.7, 'ити': 1.6, 'ова': 1.5, 'ськ': 1.8,  # removed duplicate 'ити'
 }
 
 # Forbidden patterns with penalties (higher = worse)
@@ -3651,7 +3668,7 @@ class StegoApp(ctk.CTk):
         self.subst_ignore_punct_var = ctk.BooleanVar(value=False)
         self.subst_ignore_punct_checkbox = self._create_widget(
             ctk.CTkCheckBox, left_frame,
-            text="Ignore punctuation (/ ? ! , . : ; \" ' ( ) [ ] { } - _)",
+            text=f"Ignore punctuation ({DEFAULT_PUNCT_DISPLAY})",
             variable=self.subst_ignore_punct_var
         )
         self.subst_ignore_punct_checkbox.grid(row=4, column=0, pady=5, sticky="w")
