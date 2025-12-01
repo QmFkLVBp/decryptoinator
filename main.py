@@ -1087,6 +1087,7 @@ connectivity_matrix = {
 MAX_CIPHER_SYMBOLS = 100  # Maximum cipher symbols to process
 MAX_BIGRAMS_TO_ANALYZE = 20  # Maximum bigrams to analyze during refinement
 BIGRAM_SCORE_SCALE_FACTOR = 10  # Scale factor for bigram connectivity scores
+FLOATING_POINT_EPSILON = 1e-9  # Epsilon for floating-point comparisons
 MAX_UNDO_STACK_SIZE = 50  # Maximum undo stack entries
 CONFIDENCE_HIGH_COLOR = '#90EE90'  # Light green for high confidence
 CONFIDENCE_LOW_COLOR = '#FFB6C1'  # Light red/pink for low confidence
@@ -1612,9 +1613,13 @@ def compute_cipher_bigram_freq_table(text: str, mapping: dict, use_two_digit: bo
         mapped_bg = (mapped1 + mapped2).lower()
         
         # Compute connectivity score against UA bigram model
-        conn_score = UA_COMMON_BIGRAMS.get(mapped_bg, 0.0)
-        if conn_score == 0:
-            conn_score = ukr_bigrams.get(mapped_bg, 0.0) * BIGRAM_SCORE_SCALE_FACTOR
+        # Check UA_COMMON_BIGRAMS first, then fall back to ukr_bigrams
+        if mapped_bg in UA_COMMON_BIGRAMS:
+            conn_score = UA_COMMON_BIGRAMS[mapped_bg]
+        elif mapped_bg in ukr_bigrams:
+            conn_score = ukr_bigrams[mapped_bg] * BIGRAM_SCORE_SCALE_FACTOR
+        else:
+            conn_score = 0.0
         
         result.append({
             'cipher_bigram': cipher_bg_str,
@@ -1645,9 +1650,13 @@ def compute_plaintext_bigram_freq_table(plaintext: str, top_n: int = 15) -> List
         pct = (count / total) * 100 if total > 0 else 0.0
         
         # Compute connectivity score against UA bigram model
-        conn_score = UA_COMMON_BIGRAMS.get(bg, 0.0)
-        if conn_score == 0:
-            conn_score = ukr_bigrams.get(bg, 0.0) * BIGRAM_SCORE_SCALE_FACTOR
+        # Check UA_COMMON_BIGRAMS first, then fall back to ukr_bigrams
+        if bg in UA_COMMON_BIGRAMS:
+            conn_score = UA_COMMON_BIGRAMS[bg]
+        elif bg in ukr_bigrams:
+            conn_score = ukr_bigrams[bg] * BIGRAM_SCORE_SCALE_FACTOR
+        else:
+            conn_score = 0.0
         
         result.append({
             'bigram': bg.upper(),
@@ -1661,7 +1670,7 @@ def compute_plaintext_bigram_freq_table(plaintext: str, top_n: int = 15) -> List
 
 def _format_connectivity_score(score: float) -> str:
     """Format connectivity score for display. Returns '-' for zero/near-zero scores."""
-    if score > 1e-9:  # Small epsilon for floating-point comparison
+    if score > FLOATING_POINT_EPSILON:
         return f"{score:.1f}"
     return "-"
 
@@ -1679,7 +1688,11 @@ def format_connectivity_table(cipher_table: List[dict], plain_table: List[dict])
     lines.append("-" * 42)
     for entry in cipher_table:
         score_str = _format_connectivity_score(entry['connectivity_score'])
-        lines.append(f"{entry['cipher_bigram']:10} {entry['count']:6} {entry['pct']:5.1f}% {entry['mapped_bigram']:8} {score_str:8}")
+        cipher_bg = entry['cipher_bigram']
+        count = entry['count']
+        pct = entry['pct']
+        mapped_bg = entry['mapped_bigram']
+        lines.append(f"{cipher_bg:10} {count:6} {pct:5.1f}% {mapped_bg:8} {score_str:8}")
     
     lines.append("")
     
@@ -1689,7 +1702,10 @@ def format_connectivity_table(cipher_table: List[dict], plain_table: List[dict])
     lines.append("-" * 32)
     for entry in plain_table:
         score_str = _format_connectivity_score(entry['connectivity_score'])
-        lines.append(f"{entry['bigram']:8} {entry['count']:6} {entry['pct']:5.1f}% {score_str:8}")
+        bigram = entry['bigram']
+        count = entry['count']
+        pct = entry['pct']
+        lines.append(f"{bigram:8} {count:6} {pct:5.1f}% {score_str:8}")
     
     return '\n'.join(lines)
 
@@ -1709,7 +1725,12 @@ def export_mapping_report(mapping: dict, text: str, plaintext: str, use_two_digi
         lines.append('Cipher Bigram,Count,Pct,Mapped Bigram,UA Score')
         cipher_table = compute_cipher_bigram_freq_table(text, mapping, use_two_digit)
         for entry in cipher_table:
-            lines.append(f'"{entry["cipher_bigram"]}",{entry["count"]},{entry["pct"]:.1f},"{entry["mapped_bigram"]}",{entry["connectivity_score"]:.1f}')
+            cipher_bg = entry["cipher_bigram"]
+            count = entry["count"]
+            pct = entry["pct"]
+            mapped_bg = entry["mapped_bigram"]
+            conn_score = entry["connectivity_score"]
+            lines.append(f'"{cipher_bg}",{count},{pct:.1f},"{mapped_bg}",{conn_score:.1f}')
         
         content = '\n'.join(lines)
     else:  # TXT format
