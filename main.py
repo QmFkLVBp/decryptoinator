@@ -1084,6 +1084,84 @@ MAX_UNDO_STACK_SIZE = 50  # Maximum undo stack entries
 CONFIDENCE_HIGH_COLOR = '#90EE90'  # Light green for high confidence
 CONFIDENCE_LOW_COLOR = '#FFB6C1'  # Light red/pink for low confidence
 
+# ----------------------------
+# UA Phonotactics Constants
+# ----------------------------
+
+# Ukrainian vowels and consonants
+UA_VOWELS = set('аеиіоуяєюїАЕИІОУЯЄЮЇ')
+UA_CONSONANTS = set('бвгґджзйклмнпрстфхцчшщьБВГҐДЖЗЙКЛМНПРСТФХЦЧШЩЬ')
+UA_ALPHABET = UA_VOWELS | UA_CONSONANTS
+
+# Target vowel ratio (≈41% vowels in Ukrainian text)
+UA_VOWEL_RATIO_TARGET = 0.41
+UA_VOWEL_RATIO_TOLERANCE = 0.08  # allowed deviation
+
+# Default punctuation charset for ignore punctuation feature
+# Basic punctuation: / ? ! , . : ; " ' ( ) [ ] { } - _
+# Unicode dashes: — (em dash, U+2014), – (en dash, U+2013)
+# Unicode quotes: « » „ " " ' ' (various quotation marks)
+DEFAULT_PUNCT_CHARSET = set([
+    '/', '?', '!', ',', '.', ':', ';', '"', "'", '(', ')', '[', ']', '{', '}', '-', '_',
+    '\u2014',  # — em dash
+    '\u2013',  # – en dash
+    '\u00ab',  # « left-pointing double angle quotation mark
+    '\u00bb',  # » right-pointing double angle quotation mark
+    '\u201e',  # „ double low-9 quotation mark
+    '\u201c',  # " left double quotation mark
+    '\u201d',  # " right double quotation mark
+    '\u2018',  # ' left single quotation mark
+    '\u2019',  # ' right single quotation mark
+])
+
+# Human-readable representation for UI display
+DEFAULT_PUNCT_DISPLAY = '/ ? ! , . : ; " \' ( ) [ ] { } - _'
+
+# Common UA bigrams for scoring (expanded set for bonuses)
+UA_COMMON_BIGRAMS = {
+    'на': 2.0, 'он': 1.8, 'ст': 2.0, 'пр': 1.8, 'ро': 1.7,
+    'за': 1.6, 'та': 1.6, 'ли': 1.5, 'ні': 1.5, 'ко': 1.6,
+    'но': 1.6, 'ра': 1.5, 'по': 1.7, 'ва': 1.5, 'ен': 1.4,
+    'ти': 1.5, 'ан': 1.4, 'ов': 1.4, 'ор': 1.3, 'не': 1.5,
+    'ла': 1.3, 'ін': 1.3, 'ка': 1.3, 'ом': 1.2, 'ин': 1.2,
+    'ат': 1.2, 'ер': 1.2, 'іс': 1.1, 'то': 1.4, 'во': 1.3,
+}
+
+# Common UA trigrams for scoring (bonuses)
+UA_COMMON_TRIGRAMS = {
+    'про': 2.5, 'при': 2.3, 'сто': 2.0, 'ник': 1.8, 'ани': 1.7,
+    'енн': 2.2, 'ств': 1.9, 'ові': 1.6, 'ост': 1.8, 'ого': 1.7,
+    'ння': 2.0, 'тис': 1.5, 'ком': 1.5, 'ина': 1.6, 'ьки': 1.5,
+    'ати': 1.7, 'ити': 1.6, 'ова': 1.5, 'ськ': 1.8,  # removed duplicate 'ити'
+}
+
+# Forbidden patterns with penalties (higher = worse)
+UA_FORBIDDEN_PATTERNS = {
+    'ьь': 50.0,  # double soft sign is impossible
+    'йй': 40.0,  # double й is invalid
+    'щщ': 30.0,  # rare double щ
+}
+
+# Word-start penalty characters
+UA_WORD_START_HEAVY_PENALTY = set('ьЬ')  # Ь cannot start a word
+UA_WORD_START_STRONG_PENALTY = set('йЙ')  # Й rarely starts words
+UA_WORD_START_SOFT_PENALTY = set('иєюїИЄЮЇ')  # these rarely start words
+
+
+# ----------------------------
+# Punctuation Strip Helper
+# ----------------------------
+
+def strip_punctuation(text: str, charset: Optional[set] = None) -> str:
+    """
+    Remove punctuation characters from text.
+    If charset is None, uses DEFAULT_PUNCT_CHARSET.
+    Preserves spacing and other characters.
+    """
+    if charset is None:
+        charset = DEFAULT_PUNCT_CHARSET
+    return ''.join(c for c in text if c not in charset)
+
 
 def compute_char_freq(text: str) -> List[Tuple[str, int, float]]:
     """
@@ -1124,14 +1202,22 @@ def compute_bigram_freq(text: str, top_n: int = 20) -> List[Tuple[str, int, floa
     return result
 
 
-def _map_char_with_case(c: str, mapping: dict) -> str:
+def _map_char_with_case(c: str, mapping: dict, ignore_punct: bool = False, punct_charset: Optional[set] = None) -> str:
     """
     Map a single non-digit character using mapping with case-aware behavior:
+    - If ignore_punct is True and c is in punct_charset, return c unchanged.
     - Prefer exact key match (use value as-is).
     - Else try opposite-case key; if found and the value is a single alphabetic letter,
       adjust the output case to the input char's case.
     - If value is empty or not found, return original char.
     """
+    # Safe-guard: leave punctuation unchanged when ignoring is enabled
+    if ignore_punct:
+        if punct_charset is None:
+            punct_charset = DEFAULT_PUNCT_CHARSET
+        if c in punct_charset:
+            return c
+    
     # Exact key first
     if c in mapping:
         v = mapping[c]
@@ -1155,7 +1241,7 @@ def _map_char_with_case(c: str, mapping: dict) -> str:
     return c
 
 
-def apply_substitution_mapping(text: str, mapping: dict) -> str:
+def apply_substitution_mapping(text: str, mapping: dict, ignore_punct: bool = False) -> str:
     """
     Auto-select substitution method:
     - If mapping contains ANY numeric keys (tokens of digits), apply mixed token logic
@@ -1163,6 +1249,7 @@ def apply_substitution_mapping(text: str, mapping: dict) -> str:
     - Otherwise, perform character substitution with case-aware behavior:
         * exact key match => use value as-is
         * else case-insensitive fallback with output case adjusted for single-letter mappings
+    - If ignore_punct is True, punctuation characters are preserved unchanged.
     Note: This does not modify UI, only the substitution behavior.
     """
     if not mapping:
@@ -1170,12 +1257,12 @@ def apply_substitution_mapping(text: str, mapping: dict) -> str:
 
     has_numeric_keys = any(k.isdigit() for k in mapping.keys())
     if has_numeric_keys:
-        return apply_mapping_mixed_tokens(text, mapping)
+        return apply_mapping_mixed_tokens(text, mapping, ignore_punct=ignore_punct)
 
     # Character-only mapping with case-aware behavior
     out_chars: List[str] = []
     for ch in text:
-        out_chars.append(_map_char_with_case(ch, mapping))
+        out_chars.append(_map_char_with_case(ch, mapping, ignore_punct=ignore_punct))
     return ''.join(out_chars)
 
 # NEW: Mixed tokenization — supports 1- and 2-digit tokens in the same text
@@ -1212,12 +1299,13 @@ def tokenize_digits_with_mapping(text: str, mapping_keys: set) -> List[Tuple[str
             i += 1
     return tokens
 
-def apply_mapping_mixed_tokens(text: str, mapping: dict) -> str:
+def apply_mapping_mixed_tokens(text: str, mapping: dict, ignore_punct: bool = False) -> str:
     """
     Apply a mixed substitution mapping:
     - Supports numeric tokens (1- or 2-digit) with longest-match-first.
     - Also supports character mapping (symbol -> symbol), case-aware as per _map_char_with_case.
     - Preserves punctuation and whitespace.
+    - If ignore_punct is True, punctuation characters are preserved unchanged.
     - Unmatched tokens are preserved and do not break the rest of the text.
     """
     if not mapping:
@@ -1235,8 +1323,8 @@ def apply_mapping_mixed_tokens(text: str, mapping: dict) -> str:
             else:
                 out_parts.append(tok)
         else:
-            # non-digits: case-aware mapping
-            out_parts.append(_map_char_with_case(tok, mapping))
+            # non-digits: case-aware mapping with optional punctuation ignore
+            out_parts.append(_map_char_with_case(tok, mapping, ignore_punct=ignore_punct))
 
     return ''.join(out_parts)
 
@@ -1411,7 +1499,7 @@ def tokenize_text_two_digit_mode(text: str) -> List[Tuple[str, bool]]:
             i += 1
     return tokens
 
-def detokenize_apply_mapping(text: str, mapping: dict, use_two_digit_mode: bool) -> str:
+def detokenize_apply_mapping(text: str, mapping: dict, use_two_digit_mode: bool, ignore_punct: bool = False) -> str:
     """
     Central dispatcher for applying mapping, honoring the UI 'use_two_digit_mode':
     - If mapping is empty -> return input as-is.
@@ -1423,6 +1511,7 @@ def detokenize_apply_mapping(text: str, mapping: dict, use_two_digit_mode: bool)
         * If mapping contains numeric keys, apply full mixed logic
           (tokenize_digits_with_mapping + longest-match-first + char mapping).
         * Else, perform character-only mapping (case-aware).
+    - If ignore_punct is True, punctuation characters are preserved unchanged.
     In all modes, unmatched tokens are preserved and punctuation/spacing is kept intact.
     """
     if not mapping:
@@ -1440,16 +1529,16 @@ def detokenize_apply_mapping(text: str, mapping: dict, use_two_digit_mode: bool)
             elif is_digit:
                 out_parts.append(tok)
             else:
-                out_parts.append(_map_char_with_case(tok, mapping))
+                out_parts.append(_map_char_with_case(tok, mapping, ignore_punct=ignore_punct))
         return ''.join(out_parts)
 
     # Not two-digit mode
     if has_numeric_keys:
         # Mixed-mode with longest-match-first digit handling + char mapping
-        return apply_mapping_mixed_tokens(text, mapping)
+        return apply_mapping_mixed_tokens(text, mapping, ignore_punct=ignore_punct)
 
     # Character-only mapping
-    return apply_substitution_mapping(text, mapping)
+    return apply_substitution_mapping(text, mapping, ignore_punct=ignore_punct)
 
 def compute_token_freq(tokens: List[Tuple[str, bool]]) -> List[Tuple[str, int, float]]:
     """Frequency of digit tokens only in two-digit mode."""
@@ -1517,30 +1606,179 @@ def _build_letter_freq_model(lang: str):
     return en_letter_freq
 
 def _subst_score_plaintext(plain: str, bigram_model: dict, letter_model: dict,
-                           smoothing: float = 1e-6) -> float:
+                           smoothing: float = 1e-6, lang: str = 'ua') -> float:
     """
-    Score = лог-сума bigram ймовірностей + (мінус) chi2 за літери.
+    Enhanced UA-aware scoring for substitution plaintext quality.
+    
+    Combines:
+    - Chi-squared letter frequency deviation
+    - Bigram log-probabilities  
+    - Vowel/consonant ratio penalty (≈41% vowels target)
+    - Forbidden pattern penalties (ЬЬ, ЙЙ, 4+ repeated same letter, 5+ consonants)
+    - Word-start penalties (Ь heavy, Й strong, И/Є/Ю/Ї soft)
+    - Syllable shape rewards (CV, VC) and penalties (VV)
+    - Common bigram and trigram bonuses
+    
+    Returns a score (higher = better).
     """
     filtered = [c.lower() for c in plain if c.isalpha()]
-    # Біграми
-    bigrams = [''.join(pair) for pair in zip(filtered, filtered[1:])]
     score = 0.0
+    
+    if not filtered:
+        return float('-inf')
+    
+    N = len(filtered)
+    counts = Counter(filtered)
+    
+    # 1. Chi-squared letter frequency deviation
+    chi2 = 0.0
+    for ltr, expected in letter_model.items():
+        obs = counts.get(ltr, 0)
+        exp = expected * N
+        if exp > 0:
+            chi2 += (obs - exp) ** 2 / exp
+    score -= 0.5 * chi2
+    
+    # 2. Bigram log-probabilities
+    bigrams = [''.join(pair) for pair in zip(filtered, filtered[1:])]
     for bg in bigrams:
         p = bigram_model.get(bg, smoothing)
         score += math.log(p)
-    # Частоти літер (χ²)
-    if filtered:
-        counts = Counter(filtered)
-        N = len(filtered)
-        chi2 = 0.0
-        for ltr, expected in letter_model.items():
-            obs = counts.get(ltr, 0)
-            exp = expected * N
-            if exp > 0:
-                chi2 += (obs - exp) ** 2 / exp
-        # Менший chi2 = краще → віднімаємо
-        score -= 0.5 * chi2
+    
+    # UA-specific scoring (only for Ukrainian)
+    if lang == 'ua':
+        # 3. Vowel/consonant ratio penalty
+        vowel_count = sum(1 for c in filtered if c in UA_VOWELS or c.upper() in UA_VOWELS)
+        vowel_ratio = vowel_count / N if N > 0 else 0.5
+        ratio_deviation = abs(vowel_ratio - UA_VOWEL_RATIO_TARGET)
+        if ratio_deviation > UA_VOWEL_RATIO_TOLERANCE:
+            score -= (ratio_deviation - UA_VOWEL_RATIO_TOLERANCE) * 30.0
+        
+        # 4. Forbidden pattern penalties
+        text_lower = ''.join(filtered)
+        for pattern, penalty in UA_FORBIDDEN_PATTERNS.items():
+            if pattern in text_lower:
+                score -= penalty * text_lower.count(pattern)
+        
+        # 4b. Repeated letter penalties (4+ same letter in a row)
+        max_repeat = 1
+        current_repeat = 1
+        for i in range(1, len(filtered)):
+            if filtered[i] == filtered[i-1]:
+                current_repeat += 1
+                max_repeat = max(max_repeat, current_repeat)
+            else:
+                current_repeat = 1
+        if max_repeat >= 4:
+            score -= (max_repeat - 3) * 15.0
+        
+        # 4c. Consonant run penalties (5+ consonants severe, 4 consonants light)
+        max_cc_run = 0
+        cc_run = 0
+        for c in filtered:
+            if c in UA_CONSONANTS or c.upper() in UA_CONSONANTS:
+                cc_run += 1
+                max_cc_run = max(max_cc_run, cc_run)
+            else:
+                cc_run = 0
+        if max_cc_run >= 5:
+            score -= (max_cc_run - 4) * 12.0
+        elif max_cc_run == 4:
+            score -= 3.0  # light penalty for 4 consonants
+        
+        # 5. Word-start penalties (check after spaces or at text start)
+        words = plain.split()
+        for word in words:
+            if not word:
+                continue
+            first_char = word[0]
+            if first_char in UA_WORD_START_HEAVY_PENALTY:
+                score -= 25.0  # Ь cannot start a word
+            elif first_char in UA_WORD_START_STRONG_PENALTY:
+                score -= 10.0  # Й rarely starts words
+            elif first_char in UA_WORD_START_SOFT_PENALTY:
+                score -= 2.0   # soft penalty for less common starters
+        
+        # 6. Syllable shape rewards/penalties (CV = good, VC = ok, VV = bad, CC = moderate)
+        def is_vowel(c):
+            return c in UA_VOWELS or c.upper() in UA_VOWELS
+        
+        for i in range(len(filtered) - 1):
+            c1_v = is_vowel(filtered[i])
+            c2_v = is_vowel(filtered[i+1])
+            if not c1_v and c2_v:  # CV pattern (consonant-vowel)
+                score += 0.3
+            elif c1_v and not c2_v:  # VC pattern
+                score += 0.15
+            elif c1_v and c2_v:  # VV pattern (less common)
+                score -= 0.2
+            # CC pattern gets no adjustment (moderate)
+        
+        # 7. Common UA bigram bonuses
+        for bg in bigrams:
+            if bg in UA_COMMON_BIGRAMS:
+                score += UA_COMMON_BIGRAMS[bg]
+        
+        # 8. Common UA trigram bonuses
+        for i in range(len(filtered) - 2):
+            trigram = ''.join(filtered[i:i+3])
+            if trigram in UA_COMMON_TRIGRAMS:
+                score += UA_COMMON_TRIGRAMS[trigram]
+    
     return score
+
+
+def _compute_plaintext_diagnostics(plain: str, lang: str = 'ua') -> dict:
+    """
+    Compute diagnostic metrics for plaintext quality.
+    Returns dict with keys: vowel_ratio, bad_repeats, max_cc_run, word_start_issues
+    """
+    filtered = [c.lower() for c in plain if c.isalpha()]
+    if not filtered:
+        return {'vowel_ratio': 0.0, 'bad_repeats': 0, 'max_cc_run': 0, 'word_start_issues': 0}
+    
+    N = len(filtered)
+    
+    # Vowel ratio
+    vowel_count = sum(1 for c in filtered if c in UA_VOWELS or c.upper() in UA_VOWELS)
+    vowel_ratio = (vowel_count / N * 100) if N > 0 else 0.0
+    
+    # Repeated letter count (4+ repeats)
+    bad_repeats = 0
+    current_repeat = 1
+    for i in range(1, len(filtered)):
+        if filtered[i] == filtered[i-1]:
+            current_repeat += 1
+        else:
+            if current_repeat >= 4:
+                bad_repeats += 1
+            current_repeat = 1
+    if current_repeat >= 4:
+        bad_repeats += 1
+    
+    # Max consonant run
+    max_cc_run = 0
+    cc_run = 0
+    for c in filtered:
+        if c in UA_CONSONANTS or c.upper() in UA_CONSONANTS:
+            cc_run += 1
+            max_cc_run = max(max_cc_run, cc_run)
+        else:
+            cc_run = 0
+    
+    # Word start issues
+    word_start_issues = 0
+    words = plain.split()
+    for word in words:
+        if word and word[0] in (UA_WORD_START_HEAVY_PENALTY | UA_WORD_START_STRONG_PENALTY):
+            word_start_issues += 1
+    
+    return {
+        'vowel_ratio': vowel_ratio,
+        'bad_repeats': bad_repeats,
+        'max_cc_run': max_cc_run,
+        'word_start_issues': word_start_issues
+    }
 
 def _random_initial_mapping(cipher_symbols: list, target_letters: list, rng: random.Random) -> dict:
     """
@@ -1566,6 +1804,92 @@ def _initial_frequency_mapping(cipher_symbols: list, cipher_freq: dict, letter_m
             mapping[sym] = l_sorted[i][0].upper()
     return mapping
 
+
+def _frequency_seeded_mapping(cipher_symbols: list, cipher_freq: dict, lang: str = 'ua') -> dict:
+    """
+    Create frequency-seeded initial mapping using UA phonotactics:
+    - Very high frequency tokens → vowels (О, А, Н, І, Е)
+    - High frequency → common consonants (Н, Т, Р, С, Л, В)
+    - Medium frequency → L/K/M/D/P/U type consonants
+    - Low frequency → rare consonants (Ф, Щ, Ь, Ц, Ж, Х)
+    """
+    if lang != 'ua':
+        # For non-UA, fall back to simple frequency mapping
+        letter_model = _build_letter_freq_model(lang)
+        return _initial_frequency_mapping(cipher_symbols, cipher_freq, letter_model)
+    
+    # Create a set of lowercase cipher symbols for comparison
+    cipher_symbols_lower = set(s.lower() for s in cipher_symbols)
+    
+    # Ukrainian vowels by frequency
+    ua_vowels_freq = ['о', 'а', 'і', 'е', 'и', 'у', 'я', 'ю', 'є', 'ї']
+    # Ukrainian consonants by frequency tiers
+    ua_cons_high = ['н', 'в', 'р', 'т', 'с', 'к']  # very common
+    ua_cons_mid = ['л', 'д', 'п', 'м', 'б', 'з', 'г', 'ч']  # medium
+    ua_cons_low = ['й', 'х', 'ц', 'ж', 'ш', 'щ', 'ф', 'ь', 'ґ']  # rare
+    
+    # Sort cipher symbols by frequency
+    c_sorted = sorted(cipher_freq.items(), key=lambda x: x[1], reverse=True)
+    
+    mapping = {}
+    used_letters = set()
+    vowel_idx, cons_high_idx, cons_mid_idx, cons_low_idx = 0, 0, 0, 0
+    
+    for i, (sym, freq) in enumerate(c_sorted):
+        # Check if symbol (lowercase) is in our cipher symbols
+        if sym.lower() not in cipher_symbols_lower:
+            continue
+        
+        # Assign based on frequency percentile
+        percentile = i / max(1, len(c_sorted))
+        
+        if percentile < 0.15:  # Top 15% → vowels
+            if vowel_idx < len(ua_vowels_freq):
+                ltr = ua_vowels_freq[vowel_idx]
+                if ltr not in used_letters:
+                    mapping[sym] = ltr.upper()
+                    used_letters.add(ltr)
+                    vowel_idx += 1
+                    continue
+        
+        if percentile < 0.35:  # 15-35% → high frequency consonants
+            if cons_high_idx < len(ua_cons_high):
+                ltr = ua_cons_high[cons_high_idx]
+                if ltr not in used_letters:
+                    mapping[sym] = ltr.upper()
+                    used_letters.add(ltr)
+                    cons_high_idx += 1
+                    continue
+        
+        if percentile < 0.65:  # 35-65% → medium consonants
+            if cons_mid_idx < len(ua_cons_mid):
+                ltr = ua_cons_mid[cons_mid_idx]
+                if ltr not in used_letters:
+                    mapping[sym] = ltr.upper()
+                    used_letters.add(ltr)
+                    cons_mid_idx += 1
+                    continue
+        
+        # Remaining → low frequency consonants
+        if cons_low_idx < len(ua_cons_low):
+            ltr = ua_cons_low[cons_low_idx]
+            if ltr not in used_letters:
+                mapping[sym] = ltr.upper()
+                used_letters.add(ltr)
+                cons_low_idx += 1
+                continue
+        
+        # Fallback: any remaining letter
+        all_letters = ua_vowels_freq + ua_cons_high + ua_cons_mid + ua_cons_low
+        for ltr in all_letters:
+            if ltr not in used_letters:
+                mapping[sym] = ltr.upper()
+                used_letters.add(ltr)
+                break
+    
+    return mapping
+
+
 def _refine_mapping_via_swaps(mapping: dict, rng: random.Random) -> dict:
     """Випадково міняє місцями дві літери в mapping (для hillclimb)."""
     if len(mapping) < 2:
@@ -1576,13 +1900,58 @@ def _refine_mapping_via_swaps(mapping: dict, rng: random.Random) -> dict:
     new_map[k1], new_map[k2] = new_map[k2], new_map[k1]
     return new_map
 
+
+def _token_aware_swap(mapping: dict, rng: random.Random, cross_swap_prob: float = 0.1) -> dict:
+    """
+    Token-aware selective swap for hillclimb.
+    - Primarily swaps within digit-token mappings or char mappings
+    - Occasionally (cross_swap_prob) swaps across types to escape local minima
+    """
+    if len(mapping) < 2:
+        return mapping
+    
+    keys = list(mapping.keys())
+    digit_keys = [k for k in keys if k.isdigit()]
+    char_keys = [k for k in keys if not k.isdigit()]
+    
+    new_map = mapping.copy()
+    
+    # Occasionally do cross-swap
+    if rng.random() < cross_swap_prob and digit_keys and char_keys:
+        k1 = rng.choice(digit_keys)
+        k2 = rng.choice(char_keys)
+        new_map[k1], new_map[k2] = new_map[k2], new_map[k1]
+        return new_map
+    
+    # Prefer swapping within same type
+    if digit_keys and len(digit_keys) >= 2 and (not char_keys or rng.random() < 0.7):
+        k1, k2 = rng.sample(digit_keys, 2)
+    elif char_keys and len(char_keys) >= 2:
+        k1, k2 = rng.sample(char_keys, 2)
+    else:
+        # Fallback to any two keys
+        k1, k2 = rng.sample(keys, 2)
+    
+    new_map[k1], new_map[k2] = new_map[k2], new_map[k1]
+    return new_map
+
+
 def subst_hillclimb(cipher_text: str, lang: str = 'ua',
                     iterations: int = 5000, restarts: int = 5,
                     smoothing: float = 1e-6, temp_start: float = 1.0,
-                    temp_decay: float = 0.0003, seed: int | None = None) -> tuple[dict, str, float]:
+                    temp_decay: float = 0.0003, seed: int | None = None,
+                    early_stop_threshold: int = 800) -> tuple[dict, str, float]:
     """
-    Hill-Climb + Simulated Annealing для пошуку кращої заміни.
-    Повертає (best_mapping, best_plaintext, best_score).
+    Enhanced Hill-Climb + Simulated Annealing for substitution cipher solving.
+    
+    Features:
+    - Frequency-seeded initial mapping (UA phonotactics aware)
+    - Multi-start with seeded + random + bigram-biased initializations
+    - Token-aware selective swaps with occasional cross-swaps
+    - Early-stopping on stagnation
+    - UA-aware scoring with phonotactic penalties/bonuses
+    
+    Returns (best_mapping, best_plaintext, best_score).
     """
     if not cipher_text.strip():
         return {}, "", float('-inf')
@@ -1595,24 +1964,39 @@ def subst_hillclimb(cipher_text: str, lang: str = 'ua',
     cipher_symbols = cipher_symbols[:MAX_CIPHER_SYMBOLS]
     cipher_freq = compute_cipher_frequencies_lower(cipher_text)
 
-    # Набір можливих цільових літер (скорочуємо до кількості символів)
+    # Набір можливих цільових літер
     if lang == 'ua':
         target_letters_order = [ltr.lower() for ltr, _ in UKRAINIAN_LETTER_FREQ]
     else:
         target_letters_order = [ltr.lower() for ltr, _ in ENGLISH_LETTER_FREQ]
-    target_letters_order = target_letters_order[:len(cipher_symbols)]
+    target_letters_order = target_letters_order[:max(len(cipher_symbols), len(target_letters_order))]
 
     best_global_map = {}
     best_global_score = float('-inf')
     best_global_plain = ""
 
     for r in range(restarts):
-        # Початковий mapping: частотний + невеликий випадковий шум
-        base_map = _initial_frequency_mapping(cipher_symbols, cipher_freq, letter_model)
-        # Доповнити якщо не всі символи покриті
-        used_letters = set(l.lower() for l in base_map.values())
+        # Multi-start strategy: alternate between different initialization methods
+        if r == 0:
+            # First restart: frequency-seeded mapping (UA-aware)
+            base_map = _frequency_seeded_mapping(cipher_symbols, cipher_freq, lang)
+        elif r == 1:
+            # Second restart: standard frequency mapping
+            base_map = _initial_frequency_mapping(cipher_symbols, cipher_freq, letter_model)
+        elif r % 3 == 0:
+            # Every third restart: random mapping
+            base_map = _random_initial_mapping(cipher_symbols, target_letters_order, rng)
+        else:
+            # Other restarts: frequency with random perturbation
+            base_map = _initial_frequency_mapping(cipher_symbols, cipher_freq, letter_model)
+            # Add some random swaps to perturb
+            for _ in range(rng.randint(2, 5)):
+                base_map = _refine_mapping_via_swaps(base_map, rng)
+        
+        # Ensure all cipher symbols are covered
+        used_letters = set(l.lower() for l in base_map.values() if l)
         for sym in cipher_symbols:
-            if sym not in base_map:
+            if sym not in base_map or not base_map[sym]:
                 for ltr in target_letters_order:
                     if ltr not in used_letters:
                         base_map[sym] = ltr.upper()
@@ -1621,24 +2005,34 @@ def subst_hillclimb(cipher_text: str, lang: str = 'ua',
 
         current_map = base_map
         current_plain = apply_substitution_mapping(cipher_text, current_map)
-        current_score = _subst_score_plaintext(current_plain, bigram_model, letter_model, smoothing)
+        current_score = _subst_score_plaintext(current_plain, bigram_model, letter_model, smoothing, lang)
 
         temp = temp_start
+        stagnation_count = 0
+        last_improvement_score = current_score
 
         for it in range(iterations):
-            candidate_map = _refine_mapping_via_swaps(current_map, rng)
+            # Use token-aware swap for better exploration
+            if rng.random() < 0.3:
+                candidate_map = _token_aware_swap(current_map, rng, cross_swap_prob=0.15)
+            else:
+                candidate_map = _refine_mapping_via_swaps(current_map, rng)
+            
             candidate_plain = apply_substitution_mapping(cipher_text, candidate_map)
-            candidate_score = _subst_score_plaintext(candidate_plain, bigram_model, letter_model, smoothing)
+            candidate_score = _subst_score_plaintext(candidate_plain, bigram_model, letter_model, smoothing, lang)
 
             accept = False
             if candidate_score > current_score:
                 accept = True
+                stagnation_count = 0
+                last_improvement_score = candidate_score
             else:
-                # Ймовірнісне прийняття гіршого (simulated annealing)
+                # Probabilistic acceptance (simulated annealing)
                 delta = candidate_score - current_score
                 prob = math.exp(delta / max(temp, 1e-9))
                 if rng.random() < prob:
                     accept = True
+                stagnation_count += 1
 
             if accept:
                 current_map = candidate_map
@@ -1651,6 +2045,10 @@ def subst_hillclimb(cipher_text: str, lang: str = 'ua',
                     best_global_plain = current_plain
 
             temp = max(0.0001, temp - temp_decay)
+            
+            # Early stopping on stagnation
+            if stagnation_count >= early_stop_threshold:
+                break
 
     return best_global_map, best_global_plain, best_global_score
 
@@ -3239,8 +3637,8 @@ class StegoApp(ctk.CTk):
         left_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
         left_frame.grid(row=1, column=0, rowspan=4, padx=(20, 10), pady=10, sticky="nsew")
         left_frame.grid_columnconfigure(0, weight=1)
-        left_frame.grid_rowconfigure(4, weight=1)
-        left_frame.grid_rowconfigure(6, weight=2)
+        left_frame.grid_rowconfigure(6, weight=1)
+        left_frame.grid_rowconfigure(9, weight=2)
 
         # Input textbox
         self.subst_input_label = self._create_widget(ctk.CTkLabel, left_frame)
@@ -3255,27 +3653,54 @@ class StegoApp(ctk.CTk):
             text="Multi-digit tokens (2-digit = 1 letter)",
             variable=self.subst_two_digit_var
         )
-        self.subst_two_digit_checkbox.grid(row=2, column=0, pady=5, sticky="w")
+        self.subst_two_digit_checkbox.grid(row=2, column=0, pady=(5, 0), sticky="w")
+        
+        # NEW: Inline hint under multi-digit checkbox
+        self.subst_two_digit_hint = self._create_widget(
+            ctk.CTkLabel, left_frame,
+            text="Підказка: якщо у мапі є 7 і 78 → токен 78 має пріоритет.",
+            font=ctk.CTkFont(size=10),
+            text_color="gray"
+        )
+        self.subst_two_digit_hint.grid(row=3, column=0, pady=(0, 5), sticky="w")
+        
+        # NEW: Ignore punctuation checkbox
+        self.subst_ignore_punct_var = ctk.BooleanVar(value=False)
+        self.subst_ignore_punct_checkbox = self._create_widget(
+            ctk.CTkCheckBox, left_frame,
+            text=f"Ignore punctuation ({DEFAULT_PUNCT_DISPLAY})",
+            variable=self.subst_ignore_punct_var
+        )
+        self.subst_ignore_punct_checkbox.grid(row=4, column=0, pady=5, sticky="w")
 
         # Analyze button
         self.subst_analyze_btn = self._create_widget(ctk.CTkButton, left_frame, command=self.perform_subst_analyze)
-        self.subst_analyze_btn.grid(row=3, column=0, pady=5, sticky="ew")
+        self.subst_analyze_btn.grid(row=5, column=0, pady=5, sticky="ew")
 
         # Character/token frequency label and textbox
         self.subst_freq_chars_label = self._create_widget(ctk.CTkLabel, left_frame)
-        self.subst_freq_chars_label.grid(row=4, column=0, sticky="w")
+        self.subst_freq_chars_label.grid(row=6, column=0, sticky="w")
         self.subst_freq_chars_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=100,
                                                             font=("Courier New", 11))
-        self.subst_freq_chars_textbox.grid(row=5, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_freq_chars_textbox.grid(row=7, column=0, pady=(0, 10), sticky="nsew")
         self.subst_freq_chars_textbox.configure(state="disabled")
 
         # Bigram frequency label and textbox
         self.subst_freq_bigrams_label = self._create_widget(ctk.CTkLabel, left_frame)
-        self.subst_freq_bigrams_label.grid(row=6, column=0, sticky="w")
-        self.subst_freq_bigrams_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=150,
+        self.subst_freq_bigrams_label.grid(row=8, column=0, sticky="w")
+        self.subst_freq_bigrams_textbox = self._create_widget(ctk.CTkTextbox, left_frame, height=130,
                                                               font=("Courier New", 11))
-        self.subst_freq_bigrams_textbox.grid(row=7, column=0, pady=(0, 10), sticky="nsew")
+        self.subst_freq_bigrams_textbox.grid(row=9, column=0, pady=(0, 5), sticky="nsew")
         self.subst_freq_bigrams_textbox.configure(state="disabled")
+        
+        # NEW: Static UA bigrams note under bigram frequency area
+        self.subst_bigrams_note = self._create_widget(
+            ctk.CTkLabel, left_frame,
+            text="UA common: СТ, НО, НА, ПО, РА, НИ, КО, ТО, ПР, РО",
+            font=ctk.CTkFont(size=10),
+            text_color="gray"
+        )
+        self.subst_bigrams_note.grid(row=10, column=0, pady=(0, 10), sticky="w")
 
         # --- Right Column: Mapping Table & Output ---
         right_frame = self._create_widget(ctk.CTkFrame, tab, fg_color="transparent")
@@ -3538,8 +3963,15 @@ class StegoApp(ctk.CTk):
         mapping = self.get_current_mapping()
         # Normalize mapping values to uppercase single letters (leave non-letters as-is)
         norm_mapping = {k: (v.upper() if len(v) == 1 else v) for k, v in mapping.items() if k}
+        
+        # Get ignore punctuation setting
+        ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
 
-        result = detokenize_apply_mapping(text, norm_mapping, use_two_digit_mode=bool(self.subst_two_digit_var.get()))
+        result = detokenize_apply_mapping(
+            text, norm_mapping, 
+            use_two_digit_mode=bool(self.subst_two_digit_var.get()),
+            ignore_punct=ignore_punct
+        )
         self.subst_output_textbox.delete("1.0", tk.END)
         self.subst_output_textbox.insert("1.0", result)
         self.subst_status_label.configure(text=lang["subst_status_ok_apply"], text_color="green")
@@ -3656,6 +4088,7 @@ class StegoApp(ctk.CTk):
         """
         Auto Replace with hillclimb.
         In two-digit mode, we generate mapping over digit tokens and apply token-aware rendering.
+        Supports ignore punctuation mode.
         """
         lang_ui = LANG_STRINGS[self.current_lang.get()]
         text = self.subst_input_textbox.get("1.0", tk.END).strip()
@@ -3667,6 +4100,8 @@ class StegoApp(ctk.CTk):
         lang_code = 'ua' if freq_lang_value == lang_ui.get("subst_lang_ua", "Українська") else 'en'
 
         use_two_digit = bool(self.subst_two_digit_var.get())
+        ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
+        
         self.subst_status_label.configure(text="⏳ Оптимізація (hillclimb)...", text_color="yellow")
         self.update_idletasks()
 
@@ -3684,12 +4119,13 @@ class StegoApp(ctk.CTk):
                     # Simple refinement via random swaps on token mapping using scoring of rendered plaintext
                     rng = random.Random()
                     best_map = base_mapping.copy()
-                    best_plain = detokenize_apply_mapping(text, best_map, use_two_digit_mode=True)
+                    best_plain = detokenize_apply_mapping(text, best_map, use_two_digit_mode=True, ignore_punct=ignore_punct)
                     bigram_model = _build_bigram_model(lang_code)
                     letter_model = _build_letter_freq_model(lang_code)
-                    best_score = _subst_score_plaintext(best_plain, bigram_model, letter_model)
+                    best_score = _subst_score_plaintext(best_plain, bigram_model, letter_model, lang=lang_code)
 
                     iterations = 4000
+                    stagnation_count = 0
                     for _ in range(iterations):
                         if len(best_map) < 2:
                             break
@@ -3697,10 +4133,16 @@ class StegoApp(ctk.CTk):
                         k1, k2 = rng.sample(keys, 2)
                         cand = best_map.copy()
                         cand[k1], cand[k2] = cand[k2], cand[k1]
-                        cand_plain = detokenize_apply_mapping(text, cand, use_two_digit_mode=True)
-                        cand_score = _subst_score_plaintext(cand_plain, bigram_model, letter_model)
+                        cand_plain = detokenize_apply_mapping(text, cand, use_two_digit_mode=True, ignore_punct=ignore_punct)
+                        cand_score = _subst_score_plaintext(cand_plain, bigram_model, letter_model, lang=lang_code)
                         if cand_score > best_score:
                             best_map, best_plain, best_score = cand, cand_plain, cand_score
+                            stagnation_count = 0
+                        else:
+                            stagnation_count += 1
+                        # Early stopping
+                        if stagnation_count > 500:
+                            break
 
                     self.after(0, lambda: self._subst_auto_done(best_map, best_plain, best_score, lang_code))
                 else:
@@ -3708,7 +4150,8 @@ class StegoApp(ctk.CTk):
                         text, lang=lang_code,
                         iterations=5000, restarts=6,
                         smoothing=1e-6, temp_start=1.0,
-                        temp_decay=0.00025, seed=None
+                        temp_decay=0.00025, seed=None,
+                        early_stop_threshold=800
                     )
                     self.after(0, lambda: self._subst_auto_done(mapping, plaintext, score, lang_code))
             except Exception as e:
@@ -3726,9 +4169,28 @@ class StegoApp(ctk.CTk):
 
         # Оновити таблицю
         self.set_mapping_rows(mapping)
-        # Поставити результат
+        
+        # Apply ignore punctuation setting if enabled
+        ignore_punct = bool(self.subst_ignore_punct_var.get()) if hasattr(self, 'subst_ignore_punct_var') else False
+        if ignore_punct:
+            # Re-apply with punctuation ignored for display
+            text = self.subst_input_textbox.get("1.0", tk.END).strip()
+            plaintext = detokenize_apply_mapping(
+                text, mapping, 
+                use_two_digit_mode=bool(self.subst_two_digit_var.get()),
+                ignore_punct=True
+            )
+        
+        # Compute diagnostics for result header
+        diagnostics = _compute_plaintext_diagnostics(plaintext, lang_code)
+        
+        # Build result header with diagnostics
+        header = f"Score={score:.2f}, Vowels={diagnostics['vowel_ratio']:.1f}%, BadRepeats={diagnostics['bad_repeats']}, MaxCCRun={diagnostics['max_cc_run']}\n"
+        header += "-" * 50 + "\n"
+        
+        # Поставити результат with header
         self.subst_output_textbox.delete("1.0", tk.END)
-        self.subst_output_textbox.insert("1.0", plaintext)
+        self.subst_output_textbox.insert("1.0", header + plaintext)
 
         # Запустити аналіз частот (оновити панелі)
         self.perform_subst_analyze()
