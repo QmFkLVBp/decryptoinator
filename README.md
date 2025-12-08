@@ -10,17 +10,6 @@
 
 ------------
 
-<div align="center">
-  DEVS
-</div>
-
-###
-
-<div align="center">
-  <img src="https://contrib.rocks/image?repo=QmFkLVBp/decryptoinator" />
-</div>
-
-------------
 
 <div align="center">
   DESCRIPTION
