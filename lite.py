@@ -104,27 +104,72 @@ def vigenere(text: str, key: str, encrypt: bool, up: str) -> str:
     return "".join(out)
 
 def vigenere_table(text: str, key: str, up: str) -> str:
-    if not key: raise ValueError("Key required")
+    """
+    Generate a human-readable Vigenère cipher mapping table.
+    
+    Args:
+        text: The input text to encrypt
+        key: The encryption key (must consist only of alphabet characters)
+        up: The uppercase alphabet to use
+        
+    Returns:
+        A formatted string containing:
+        - Original text
+        - Keystream
+        - Encrypted result
+        - Detailed mapping table with Index, Original, Key, Shift, and Encrypted columns
+        
+    Raises:
+        ValueError: If key is empty or contains invalid characters
+    """
+    # Validate key is provided
+    if not key:
+        raise ValueError("Key required")
+    
+    # Validate key consists only of characters from the provided alphabet
     key_up = key.upper()
-    if any(ch not in up for ch in key_up): raise ValueError("Key contains invalid characters")
+    if any(ch not in up for ch in key_up):
+        raise ValueError("Key contains invalid characters")
+    
     n = len(up)
-    ks, ct, ki = [], [], 0
+    ks, ct, shifts, ki = [], [], [], 0
+    
+    # Process each character in the text
     for ch in text:
         cu = ch.upper()
         if cu in up:
+            # Get the key character for this position
             kch = key_up[ki % len(key_up)]
-            enc_pos = (up.index(cu) + up.index(kch)) % n
+            # Calculate the shift value (position of key character in alphabet)
+            shift = up.index(kch)
+            # Calculate encrypted position
+            enc_pos = (up.index(cu) + shift) % n
             enc_ch = up[enc_pos]
+            # Preserve case from original text
             ks.append(kch if ch.isupper() else kch.lower())
             ct.append(enc_ch if ch.isupper() else enc_ch.lower())
+            shifts.append(shift)
             ki += 1
         else:
-            ks.append("-"); ct.append(ch)
+            # Non-alphabetic characters are preserved as-is
+            ks.append("-")
+            ct.append(ch)
+            shifts.append(-1)  # -1 indicates no shift for non-alphabetic chars
+    
     orig, kstream, cipher = text, "".join(ks), "".join(ct)
-    header = f"{'Idx':>4} {'Orig':^6} {'Key':^6} {'Enc':^6}"
+    
+    # Build the detailed mapping table with Shift column
+    header = f"{'Idx':>4} {'Orig':^6} {'Key':^6} {'Shift':>5} {'Enc':^6}"
     lines = [header, "-" * len(header)]
-    for i, (o, k, c) in enumerate(zip(orig, kstream, cipher), start=1):
-        lines.append(f"{i:4} {o.replace('\t','\\t').replace('\n','\\n'):^6} {k:^6} {c.replace('\t','\\t').replace('\n','\\n'):^6}")
+    
+    for i, (o, k, s, c) in enumerate(zip(orig, kstream, shifts, cipher), start=1):
+        # Format shift value, using "-" for non-alphabetic characters
+        shift_str = str(s) if s >= 0 else "-"
+        # Escape special characters for display
+        o_display = o.replace('\t', '\\t').replace('\n', '\\n')
+        c_display = c.replace('\t', '\\t').replace('\n', '\\n')
+        lines.append(f"{i:4} {o_display:^6} {k:^6} {shift_str:>5} {c_display:^6}")
+    
     return "\n".join([f"Original: {orig}", f"Keystream: {kstream}", f"Encrypted: {cipher}", "", *lines])
 
 def caesar(text: str, shift: int, up: str, lo: str) -> str:
