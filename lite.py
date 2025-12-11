@@ -25,7 +25,7 @@ APP_VERSION = "Lite-1.7.2-compact"
 # Alphabets
 EN_UP, EN_LO = string.ascii_uppercase, string.ascii_lowercase
 UA_UP = "АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ"  # 33
-UA_LO = "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя"
+UA_LO = "абвгґдеєжзиіїйклмнопруфхцчшщьюя"
 
 # Themes
 THEMES = {
@@ -48,7 +48,7 @@ LANG = {
         "vig_title": "Шифр Віженера", "vig_alpha": "Алфавіт:", "vig_in": "Вхідний текст:", "vig_key": "Ключ:", "vig_rot": "ROT (зсув):", "vig_enc": "ЗАШИФРУВАТИ", "vig_dec": "РОЗШИФРУВАТИ",
         "vig_tbl_gen": "Згенерувати таблицю", "vig_tbl_copy": "Копіювати таблицю", "vig_tbl_label": "Таблиця (оригінал | ключ | результат):",
         "cip_title": "Cipser (Цезар)", "cip_in": "Вхідний текст:", "cip_alpha": "Алфавіт:", "cip_shift": "Зсув (ціле):", "cip_enc": "Зашифрувати", "cip_dec": "Розшифрувати",
-        "about_title": "Про автора", "about_text": f"Автори: Крилевич Мирослав та Кондратюк Віталій\nГрупа: УБД-32\nВерсія: {APP_VERSION}", "about_links": "Посилання: GitHub/QmFkLVBp",
+        "about_title": "Про автора", "about_text": f"Автори: Крилевич Мирослав \nГрупа: УБД-32\nВерсія: {APP_VERSION}", "about_links": "Посилання: GitHub/QmFkLVBp",
     },
     "en": {
         "title": "DECRYPTOINATOR LITE",
@@ -63,7 +63,7 @@ LANG = {
         "vig_title": "Vigenère", "vig_alpha": "Alphabet:", "vig_in": "Input text:", "vig_key": "Key:", "vig_rot": "ROT (shift):", "vig_enc": "ENCRYPT", "vig_dec": "DECRYPT",
         "vig_tbl_gen": "Generate table", "vig_tbl_copy": "Copy table", "vig_tbl_label": "Table (orig | key | result):",
         "cip_title": "Cipser (Caesar)", "cip_in": "Input text:", "cip_alpha": "Alphabet:", "cip_shift": "Shift (int):", "cip_enc": "Encrypt", "cip_dec": "Decrypt",
-        "about_title": "About", "about_text": f"Author: Krylevych Myroslav & Kondratyk Vitaliy\nGroup: UBD-32\nVersion: {APP_VERSION}", "about_links": "Links: GitHub/QmFkLVBp",
+        "about_title": "About", "about_text": f"Author: Krylevych Myroslav \nGroup: UBD-32\nVersion: {APP_VERSION}", "about_links": "Links: GitHub/QmFkLVBp",
     }
 }
 
@@ -435,7 +435,13 @@ class LiteApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
 
     def _vig_rot_val(self, up):
         s = self.vig_rot.get().strip()
-        return int(s) % len(up) if s.lstrip("-").isdigit() else 0
+        # Invert sign here so that positive ROT shifts alphabet in the other direction
+        # (user expects ROT=+2 to behave like previous ROT=-2). rotate_alphabet() treats
+        # positive rot as left rotation, so we negate the value to get the "other" direction.
+        if s.lstrip("-").isdigit():
+            val = int(s)
+            return (-val) % len(up)
+        return 0
 
     def vig_run(self, encrypt):
         try:
