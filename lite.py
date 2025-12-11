@@ -142,7 +142,7 @@ def vigenere_table(text: str, key: str, up: str) -> str:
             kch = key_up[ki % len(key_up)]
             # Calculate the shift value (position of key character in alphabet)
             shift = up.index(kch)
-            # Calculate encrypted position (use cached shift value)
+            # Calculate encrypted position
             enc_pos = (up.index(cu) + shift) % n
             enc_ch = up[enc_pos]
             # Preserve case from original text
